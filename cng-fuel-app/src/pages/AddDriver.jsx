@@ -1,93 +1,120 @@
 import { useState } from "react";
-import { useNavigate, useSearchParams } from "react-router-dom";
+import { useNavigate } from "react-router-dom";
 import { useLanguage } from "../contexts/LanguageContext";
-import { getVehicles, addDriver } from "../db/database";
+import { addDriver, getVehicles, getDrivers } from "../db/database";
 
 export default function AddDriver() {
   const navigate = useNavigate();
   const { t } = useLanguage();
-  const [searchParams] = useSearchParams();
-  const skipTerms = searchParams.get("skipTerms") === "true";
   const vehicles = getVehicles();
-  const [form, setForm] = useState({ name: "", mobile: "", license: "", vehicleId: vehicles[0]?.id || "" });
-  const [savedCode, setSavedCode] = useState(null);
+  const existingDrivers = getDrivers();
 
-  const handleChange = (field, value) => setForm((prev) => ({ ...prev, [field]: value }));
-  const isComplete = form.name && form.mobile.length === 10 && form.license && form.vehicleId;
+  const [form, setForm] = useState({ name: "", phone: "", vehicleId: vehicles[0]?.id || "" });
+  const [newCode, setNewCode] = useState(null);
+
+  const handleChange = (field, value) => setForm((p) => ({ ...p, [field]: value }));
+  const isComplete = form.name && form.phone.length >= 10 && form.vehicleId;
 
   const handleAdd = () => {
-    const { id, driverCode } = addDriver(form);
-    setSavedCode(driverCode);
+    const result = addDriver(form);
+    setNewCode(result.driverCode);
   };
 
-  if (savedCode) {
+  const handleFinish = () => {
+    navigate("/terms");
+  };
+
+  if (newCode) {
     return (
-      <div className="min-h-screen bg-brand-bg px-4 py-8">
-        <div className="max-w-sm mx-auto text-center">
-          <div className="w-16 h-16 bg-green-500 rounded-full flex items-center justify-center mx-auto mb-6 shadow-lg">
-            <svg className="w-8 h-8 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" />
-            </svg>
-          </div>
-          <h2 className="text-xl font-bold text-primary mb-2">Driver Added!</h2>
-          <p className="text-gray-500 text-sm mb-6">Share this code with the driver to link them to the vehicle.</p>
-
-          <div className="bg-white rounded-2xl shadow-sm p-6 mb-6">
-            <p className="text-xs text-gray-400 font-medium uppercase tracking-wider mb-2">Driver Code</p>
-            <p className="text-4xl font-extrabold text-accent tracking-[8px] select-all">{savedCode}</p>
-          </div>
-
-          <div className="bg-yellow-50 rounded-xl border border-yellow-200 p-4 mb-6 text-left">
-            <div className="flex items-start gap-2">
-              <svg className="w-5 h-5 text-yellow-600 shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-              </svg>
-              <p className="text-xs text-yellow-800">The driver must enter this code after logging in. They will be linked to <strong>{vehicles.find((v) => v.id === form.vehicleId)?.regNo}</strong>.</p>
+      <div className="min-h-screen bg-primary px-6 py-8 flex items-center justify-center relative">
+        <div className="absolute top-[-30%] left-[-20%] w-[80%] h-[60%] bg-mint/5 rounded-full blur-[100px]" />
+        <div className="max-w-sm w-full relative z-10 animate-fade-in">
+          <div className="floating-card p-8 text-center">
+            <div className="w-16 h-16 rounded-full bg-mint/20 flex items-center justify-center mx-auto mb-6">
+              <svg className="w-8 h-8 text-mint" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg>
             </div>
+            <h2 className="text-2xl font-bold text-ink mb-2 tracking-tight">{t.driverAdded}</h2>
+            <p className="text-silver-dark text-sm mb-6 font-light">Share this code with the driver</p>
+            <div className="bg-black/5 rounded-2xl py-5 px-4 mb-6">
+              <p className="text-4xl font-extrabold tracking-[12px] text-accent font-mono">{newCode}</p>
+            </div>
+            <button onClick={handleFinish} className="w-full pill-button-primary text-base">
+              {t.continue}
+            </button>
           </div>
-
-          <button onClick={() => navigate(skipTerms ? "/dashboard" : "/terms")} className="w-full bg-primary text-white font-bold py-3.5 rounded-xl text-lg">
-            {t.continue}
-          </button>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-brand-bg px-4 py-8">
-      <div className="max-w-sm mx-auto">
-        <div className="flex items-center gap-3 mb-6">
-          <div className="w-8 h-8 bg-primary rounded-lg flex items-center justify-center"><span className="text-white text-xs font-bold">3</span></div>
-          <div><h2 className="text-xl font-bold text-primary">{t.addDriver}</h2><p className="text-gray-500 text-xs">Assign a driver to vehicle</p></div>
-        </div>
+    <div className="min-h-screen bg-primary px-6 py-8 relative">
+      <div className="max-w-sm mx-auto animate-fade-in">
+        <button onClick={() => navigate("/add-vehicle")} className="text-silver-dark hover:text-ink mb-6 flex items-center gap-2 text-sm transition-colors">
+          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" /></svg>
+          Back
+        </button>
 
-        <div className="bg-white rounded-2xl shadow-sm p-5 space-y-4">
-          <InputField label={t.driverName} value={form.name} onChange={(v) => handleChange("name", v)} placeholder="Driver's full name" />
-          <InputField label={t.driverMobile} value={form.mobile} onChange={(v) => handleChange("mobile", v)} placeholder="10-digit mobile" type="number" maxLength={10} />
-          <InputField label={t.licenseNumber} value={form.license} onChange={(v) => handleChange("license", v)} placeholder="License number" />
+        <div className="flex items-center gap-4 mb-8">
+          <div className="w-10 h-10 rounded-2xl bg-accent/20 flex items-center justify-center">
+            <span className="text-accent text-sm font-bold">3</span>
+          </div>
           <div>
-            <label className="text-sm font-medium text-gray-700 mb-1 block">{t.assignVehicle}</label>
-            <select value={form.vehicleId} onChange={(e) => handleChange("vehicleId", e.target.value)} className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-3 text-gray-800 outline-none focus:border-primary">
-              {vehicles.map((v) => <option key={v.id} value={v.id}>{v.regNo}</option>)}
-            </select>
+            <h2 className="text-2xl font-bold text-ink tracking-tight">{t.addDriver}</h2>
+            <p className="text-silver-dark text-xs font-light">Assign driver to vehicle</p>
           </div>
         </div>
 
-        <div className="flex gap-3 mt-6">
-          <button onClick={() => navigate(skipTerms ? "/dashboard" : "/terms")} className="flex-1 bg-gray-200 text-gray-700 font-semibold py-3.5 rounded-xl text-base transition-all hover:bg-gray-300">{t.skip}</button>
-          <button onClick={handleAdd} disabled={!isComplete} className="flex-1 bg-primary disabled:bg-gray-300 text-white font-bold py-3.5 rounded-xl text-base transition-all disabled:text-gray-500">{t.addDriverBtn}</button>
-        </div>
-      </div>
-    </div>
-  );
-}
+        {existingDrivers.length > 0 && (
+          <div className="floating-card p-4 mb-6">
+            <p className="text-sm font-semibold text-ink/70 mb-3 tracking-wide">Existing Drivers</p>
+            {existingDrivers.map((d) => {
+              const v = vehicles.find((x) => x.id === d.vehicleId);
+              return (
+                <div key={d.id} className="flex items-center justify-between py-2 border-b border-black/5 last:border-0">
+                  <div>
+                    <p className="text-ink text-sm font-medium">{d.name}</p>
+                    <p className="text-silver-dark text-xs">{v?.regNo || "—"}</p>
+                  </div>
+                  <span className="font-mono text-accent text-sm font-bold tracking-widest">{d.driverCode}</span>
+                </div>
+              );
+            })}
+          </div>
+        )}
 
-function InputField({ label, value, onChange, placeholder, maxLength, type = "text" }) {
-  return (
-    <div>
-      <label className="text-sm font-medium text-gray-700 mb-1 block">{label}</label>
-      <input type={type} value={value} onChange={(e) => onChange(e.target.value)} placeholder={placeholder} maxLength={maxLength} className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-3 text-gray-800 outline-none focus:border-primary transition-colors" />
+        <div className="floating-card p-6 space-y-5">
+          <div>
+            <label className="text-sm font-medium text-ink/70 mb-2 block tracking-wide">{t.driverName}</label>
+            <input type="text" value={form.name} onChange={(e) => handleChange("name", e.target.value)} placeholder="Driver name" className="input-field" />
+          </div>
+          <div>
+            <label className="text-sm font-medium text-ink/70 mb-2 block tracking-wide">{t.mobileNumber}</label>
+            <div className="flex items-center input-field p-0 overflow-hidden">
+              <span className="text-silver-dark font-medium pl-5 pr-2">+91</span>
+              <input type="number" maxLength={10} value={form.phone} onChange={(e) => handleChange("phone", e.target.value.slice(0, 10))} placeholder="9876543210" className="bg-transparent text-ink w-full outline-none placeholder-ink/20 py-4 pr-5" />
+            </div>
+          </div>
+          <div>
+            <label className="text-sm font-medium text-ink/70 mb-2 block tracking-wide">{t.assignVehicle}</label>
+            {vehicles.length === 0 ? (
+              <p className="text-silver-dark text-sm">No vehicles available. Add a vehicle first.</p>
+            ) : (
+              <div className="space-y-2">
+                {vehicles.map((v) => (
+                  <button key={v.id} onClick={() => handleChange("vehicleId", v.id)} className={`w-full text-left px-5 py-3.5 rounded-2xl text-sm font-medium transition-all duration-300 ${form.vehicleId === v.id ? "bg-accent/20 text-accent border-accent/30 border" : "bg-black/5 text-silver-dark border border-black/5 hover:bg-black/10"}`}>
+                    {v.regNo} — {v.make} {v.model}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+
+        <button onClick={handleAdd} disabled={!isComplete} className="w-full pill-button-primary text-base mt-8 disabled:opacity-30 disabled:cursor-not-allowed">
+          {t.addDriver}
+        </button>
+      </div>
     </div>
   );
 }

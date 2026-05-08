@@ -1,15 +1,17 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
-import { getOwner, getVehicles, getDrivers, getFills } from "../db/database";
+import { getOwner as getLocalOwner, getVehicles as getLocalVehicles, getDrivers as getLocalDrivers, getFills as getLocalFills } from "../db/database";
+import { pushSync } from "../db/sync";
 import { downloadCsv } from "../utils/exportCsv";
+import { API_URL } from "../config";
 
 const TABS = ["Overview", "Owners", "Vehicles", "Drivers", "Fills", "Media"];
 
 function StatCard({ label, value, color }) {
   return (
-    <div className="bg-gray-800 rounded-xl p-4 text-center">
-      <p className={`text-2xl font-extrabold ${color}`}>{value}</p>
-      <p className="text-gray-400 text-xs mt-1">{label}</p>
+    <div className="floating-card p-5 text-center">
+      <p className={`text-3xl font-extrabold ${color}`}>{value}</p>
+      <p className="text-ink/40 text-xs mt-1.5 font-medium tracking-wide uppercase">{label}</p>
     </div>
   );
 }
@@ -18,186 +20,283 @@ export default function AdminDashboard() {
   const navigate = useNavigate();
   const [tab, setTab] = useState("Overview");
   const [previewImg, setPreviewImg] = useState(null);
+  const [data, setData] = useState({ owners: [], vehicles: [], drivers: [], fills: [] });
+  const [loading, setLoading] = useState(true);
+  const [backendStatus, setBackendStatus] = useState("checking");
+  const [syncMsg, setSyncMsg] = useState(null);
+  const [showDiag, setShowDiag] = useState(false);
+  const [rawEntries, setRawEntries] = useState([]);
+  const [manualPhone, setManualPhone] = useState("");
+  const [usingLocalFallback, setUsingLocalFallback] = useState(false);
 
-  const owner = getOwner();
-  const vehicles = getVehicles();
-  const drivers = getDrivers();
-  const fills = getFills();
+  function safeSignal(ms) {
+    try { return AbortSignal.timeout(ms); } catch {
+      const c = new AbortController();
+      setTimeout(() => c.abort(), ms);
+      return c.signal;
+    }
+  }
+
+  function mergeWithLocal(backend) {
+    const localOwner = getLocalOwner();
+    const localVehicles = getLocalVehicles();
+    const localDrivers = getLocalDrivers();
+    const localFills = getLocalFills();
+    if (!localOwner && localVehicles.length === 0 && localDrivers.length === 0 && localFills.length === 0) return backend;
+    const merged = { ...backend };
+    if (localOwner && !backend.owners.find((o) => o.phone === localOwner.phone)) merged.owners.push(localOwner);
+    localVehicles.forEach((v) => { if (!merged.vehicles.find((x) => x.id === v.id)) merged.vehicles.push(v); });
+    localDrivers.forEach((d) => { if (!merged.drivers.find((x) => x.id === d.id)) merged.drivers.push(d); });
+    localFills.forEach((f) => { if (!merged.fills.find((x) => x.id === f.id)) merged.fills.push(f); });
+    return merged;
+  }
+
+  const loadData = useCallback(async () => {
+    try {
+      const res = await fetch(API_URL + "/api/sync/all", { signal: safeSignal(5000) });
+      if (!res.ok) throw new Error("Not available");
+      const all = await res.json();
+      const owners = [];
+      const vehicles = [];
+      const drivers = [];
+      const fills = [];
+      all.forEach((u) => {
+        if (u.data?.owner) owners.push(u.data.owner);
+        if (Array.isArray(u.data?.vehicles)) vehicles.push(...u.data.vehicles);
+        if (Array.isArray(u.data?.drivers)) drivers.push(...u.data.drivers);
+        if (Array.isArray(u.data?.fills)) fills.push(...u.data.fills);
+      });
+      const backendData = { owners, vehicles, drivers, fills };
+      const merged = mergeWithLocal(backendData);
+      setData(merged);
+      setUsingLocalFallback(merged !== backendData);
+      setRawEntries(all.map((u) => ({
+        phone: u.phone,
+        updatedAt: u.updatedAt,
+        hasOwner: !!u.data?.owner,
+        vehicleCount: Array.isArray(u.data?.vehicles) ? u.data.vehicles.length : 0,
+        driverCount: Array.isArray(u.data?.drivers) ? u.data.drivers.length : 0,
+        fillCount: Array.isArray(u.data?.fills) ? u.data.fills.length : 0,
+      })));
+      setBackendStatus("online");
+    } catch {
+      const localData = mergeWithLocal({ owners: [], vehicles: [], drivers: [], fills: [] });
+      setData(localData);
+      setUsingLocalFallback(true);
+      setBackendStatus("offline");
+    }
+    setLoading(false);
+  }, []);
+
+  useEffect(() => {
+    loadData();
+    const interval = setInterval(loadData, 10000);
+    return () => clearInterval(interval);
+  }, [loadData]);
 
   const fillsByVehicle = useMemo(() => {
     const map = {};
-    fills.forEach((f) => { map[f.vehicleId] = (map[f.vehicleId] || 0) + 1; });
+    data.fills.forEach((f) => { map[f.vehicleId] = (map[f.vehicleId] || 0) + 1; });
     return map;
-  }, [fills]);
+  }, [data.fills]);
 
   const handleLogout = () => {
     sessionStorage.removeItem("cng_admin");
     navigate("/admin-login");
   };
 
-  const videoFills = fills.filter((f) => f.photos && (Array.isArray(f.photos) ? f.photos.length > 0 : (f.photos.pumpMeter || f.photos.receipt || f.photos.odometer)));
+  const videoFills = data.fills.filter((f) => f.photos && (Array.isArray(f.photos) ? f.photos.length > 0 : (f.photos.pumpMeter || f.photos.receipt || f.photos.odometer)));
   const allMedia = [];
-  fills.forEach((f) => {
-    if (f.pumpMeterPhoto) allMedia.push({ type: "Pump Meter", fill: f, src: f.pumpMeterPhoto });
-    if (f.receiptPhoto) allMedia.push({ type: "Receipt", fill: f, src: f.receiptPhoto });
-    if (f.odometerPhoto) allMedia.push({ type: "Odometer", fill: f, src: f.odometerPhoto });
+  data.fills.forEach((f) => {
+    if (f.photos?.pumpMeter) allMedia.push({ type: "Pump Meter", fill: f, src: f.photos.pumpMeter });
+    if (f.photos?.receipt) allMedia.push({ type: "Receipt", fill: f, src: f.photos.receipt });
+    if (f.photos?.odometer) allMedia.push({ type: "Odometer", fill: f, src: f.photos.odometer });
   });
 
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-primary text-ink flex items-center justify-center">
+        <div className="flex flex-col items-center gap-3">
+          <div className="w-8 h-8 rounded-full border-2 border-accent border-t-transparent animate-spin" />
+          <p className="text-silver-dark text-sm font-light">Loading admin data...</p>
+        </div>
+      </div>
+    );
+  }
+
   return (
-    <div className="min-h-screen bg-gray-950 text-white pb-8">
-      {previewImg && (
-        <div className="fixed inset-0 z-[100] bg-black/90 flex flex-col items-center justify-center" onClick={() => setPreviewImg(null)}>
-          <button onClick={() => setPreviewImg(null)} className="absolute top-4 right-4 w-10 h-10 bg-white/20 rounded-full flex items-center justify-center text-white z-10">
-            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
-          </button>
-          <img src={previewImg} alt="Preview" className="max-w-[95vw] max-h-[85vh] rounded-2xl shadow-2xl object-contain" />
-          <p className="text-white/50 text-xs mt-4">Tap anywhere to close</p>
+    <div className="min-h-screen bg-primary text-ink pb-24">
+      {backendStatus === "offline" && (
+        <div className="bg-yellow-500/10 text-yellow-300 text-xs text-center py-3 px-4 border-b border-yellow-500/10 font-light">
+          Backend offline — showing data from last sync.
         </div>
       )}
-      <div className="bg-gray-900 border-b border-gray-800 px-4 py-4 sticky top-0 z-50">
-        <div className="max-w-5xl mx-auto flex items-center justify-between">
-          <div>
-            <h1 className="text-lg font-bold">Admin Panel</h1>
-            <p className="text-gray-400 text-xs">CNG Fuel Credit Service</p>
-          </div>
-          <button onClick={handleLogout} className="bg-gray-800 hover:bg-gray-700 text-gray-300 text-xs font-semibold px-3 py-1.5 rounded-lg transition-colors">
-            Logout
+      {usingLocalFallback && (
+        <div className="bg-accent/10 text-accent text-xs text-center py-3 px-4 border-b border-accent/10 font-light">
+          Showing localStorage data merged with backend. Use "Force Sync" below.
+        </div>
+      )}
+      {previewImg && (
+        <div className="fixed inset-0 z-[100] bg-ink/95 flex flex-col items-center justify-center" onClick={() => setPreviewImg(null)}>
+          <button onClick={() => setPreviewImg(null)} className="absolute top-6 right-6 w-10 h-10 bg-white/5 rounded-2xl flex items-center justify-center text-white/60 hover:text-white hover:bg-white/10 z-10 transition-all">
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
           </button>
+          <img src={previewImg} alt="Preview" className="max-w-[92vw] max-h-[80vh] rounded-3xl shadow-2xl object-contain" />
+          <p className="text-white/20 text-xs mt-5 font-light">Tap anywhere to close</p>
+        </div>
+      )}
+
+      {/* Header */}
+      <div className="relative overflow-hidden pt-6 px-6 pb-4 border-b border-black/5">
+        <div className="absolute top-[-30%] left-[-10%] w-[60%] h-[50%] bg-accent/5 rounded-full blur-[100px]" />
+        <div className="relative z-10 flex items-center justify-between">
+          <div>
+            <h1 className="text-lg font-bold tracking-tight">Admin Panel</h1>
+            <p className="text-silver-dark text-xs font-light mt-0.5">CNG Fuel Credit Service</p>
+          </div>
+          <div className="flex items-center gap-3">
+            <span className={`inline-block w-2.5 h-2.5 rounded-full ${backendStatus === "online" ? "bg-mint shadow-glow-mint" : backendStatus === "offline" ? "bg-yellow-400" : "bg-black/20"} transition-all`} title={`Backend ${backendStatus}`} />
+            <button onClick={handleLogout} className="bg-black/5 hover:bg-black/10 text-silver-dark text-xs font-semibold px-4 py-2 rounded-xl transition-all border border-black/5">
+              Logout
+            </button>
+          </div>
         </div>
       </div>
 
-      <div className="max-w-5xl mx-auto px-4">
+      <div className="max-w-5xl mx-auto px-6">
         {tab === "Overview" && (
-          <>
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mt-6 mb-6">
-              <StatCard label="Owners" value={owner ? 1 : 0} color="text-blue-400" />
-              <StatCard label="Vehicles" value={vehicles.length} color="text-green-400" />
-              <StatCard label="Drivers" value={drivers.length} color="text-yellow-400" />
-              <StatCard label="Fill Records" value={fills.length} color="text-accent" />
+          <div className="animate-fade-in">
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mt-6 mb-6">
+              <StatCard label="Owners" value={data.owners.length} color="text-accent" />
+              <StatCard label="Vehicles" value={data.vehicles.length} color="text-mint" />
+              <StatCard label="Drivers" value={data.drivers.length} color="text-accent" />
+              <StatCard label="Fill Records" value={data.fills.length} color="text-mint" />
             </div>
 
-            <div className="bg-gray-900 rounded-xl p-4 mb-4">
-              <p className="text-sm font-semibold text-gray-300 mb-3">Recent Fills</p>
-              {fills.length === 0 ? (
-                <p className="text-gray-500 text-xs text-center py-4">No fill records yet</p>
+            <div className="floating-card p-5 mb-4">
+              <p className="text-sm font-semibold text-ink/70 mb-4 tracking-wide">Recent Fills</p>
+              {data.fills.length === 0 ? (
+                <p className="text-silver-dark text-xs text-center py-6 font-light">No fill records yet</p>
               ) : (
                 <div className="space-y-1 max-h-60 overflow-y-auto">
-                  {fills.slice(0, 20).map((f) => (
-                    <div key={f.id} className="flex justify-between items-center py-1.5 border-b border-gray-800 last:border-0 text-xs">
-                      <div className="flex items-center gap-2 min-w-0">
-                        <span className="font-semibold text-gray-200">{f.regNo || "—"}</span>
-                        <span className="text-gray-500 truncate">{f.date} {f.station ? `· ${f.station}` : ""}</span>
+                  {data.fills.slice(0, 20).map((f) => (
+                    <div key={f.id} className="flex justify-between items-center py-2.5 border-b border-black/5 last:border-0 text-sm">
+                      <div className="flex items-center gap-3 min-w-0">
+                        <span className="font-semibold text-ink">{f.regNo || "—"}</span>
+                        <span className="text-silver-dark font-light truncate">{f.date} {f.station ? `· ${f.station}` : ""}</span>
                       </div>
-                      <span className="text-gray-400 shrink-0 ml-2">{f.kg}kg · Rs{f.rs}</span>
+                      <span className="text-ink/60 shrink-0 ml-2 font-medium">{f.kg}kg · Rs{f.rs}</span>
                     </div>
                   ))}
                 </div>
               )}
             </div>
 
-            <div className="bg-gray-900 rounded-xl p-4 mb-4">
-              <p className="text-sm font-semibold text-gray-300 mb-3">Storage Summary</p>
-              <div className="grid grid-cols-2 gap-3 text-xs">
-                <div className="bg-gray-800 rounded-lg p-3">
-                  <p className="text-gray-400">Total Photos Stored</p>
-                  <p className="text-xl font-bold text-white">{allMedia.length}</p>
+            <div className="floating-card p-5 mb-4">
+              <p className="text-sm font-semibold text-ink/70 mb-4 tracking-wide">Storage</p>
+              <div className="grid grid-cols-2 gap-4">
+                <div className="bg-black/5 rounded-2xl p-4">
+                  <p className="text-silver-dark text-xs font-medium mb-1">Photos Stored</p>
+                  <p className="text-2xl font-bold text-ink">{allMedia.length}</p>
                 </div>
-                <div className="bg-gray-800 rounded-lg p-3">
-                  <p className="text-gray-400">Fills with Photos</p>
-                  <p className="text-xl font-bold text-white">{videoFills.length}</p>
+                <div className="bg-black/5 rounded-2xl p-4">
+                  <p className="text-silver-dark text-xs font-medium mb-1">Fills w/ Photos</p>
+                  <p className="text-2xl font-bold text-ink">{videoFills.length}</p>
                 </div>
               </div>
             </div>
-          </>
-        )}
 
-        {tab === "Owners" && (
-          <div className="mt-6">
-            <div className="flex items-center justify-between mb-3">
-              <p className="text-sm font-semibold text-gray-300">All Owners</p>
-              {owner && (
-                <button onClick={() => downloadCsv([owner], "owners")} className="bg-accent/20 text-accent text-xs font-semibold px-3 py-1.5 rounded-lg hover:bg-accent/30 transition-colors">
-                  Export CSV
-                </button>
+            <div className="floating-card p-5 mb-4">
+              <div className="flex items-center justify-between mb-4">
+                <p className="text-sm font-semibold text-ink/70 tracking-wide">Sync & Diagnostics</p>
+                <button onClick={() => setShowDiag(!showDiag)} className="text-silver-dark text-xs hover:text-ink transition-colors">{showDiag ? "Hide" : "Show"}</button>
+              </div>
+              {showDiag && (
+                <div className="text-sm space-y-3">
+                  <div className="bg-black/5 rounded-2xl p-4">
+                    <p className="text-silver-dark text-xs font-medium mb-2">Backend DB (user_sync)</p>
+                    <p className="text-ink">Synced phones: <span className="font-bold text-accent">{rawEntries.length}</span></p>
+                    {rawEntries.length === 0 ? (
+                      <p className="text-yellow-400/70 text-xs mt-2 font-light">No entries — table is empty</p>
+                    ) : (
+                      <div className="mt-3 space-y-2 max-h-40 overflow-y-auto">
+                        {rawEntries.map((e) => (
+                          <div key={e.phone} className="bg-black/20 rounded-xl p-3 flex flex-wrap gap-x-4 gap-y-1.5 text-xs">
+                            <span className="text-ink font-medium">{e.phone}</span>
+                            <span className="text-silver-dark">updated: {new Date(e.updatedAt).toLocaleString()}</span>
+                            <span className="text-accent">{e.hasOwner ? "1 owner" : "0 owner"}</span>
+                            <span className="text-mint">{e.vehicleCount} vehicles</span>
+                            <span className="text-accent/80">{e.driverCount} drivers</span>
+                            <span className="text-mint/80">{e.fillCount} fills</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                  <div className="bg-black/5 rounded-2xl p-4">
+                    <p className="text-silver-dark text-xs font-medium mb-2">Local Browser</p>
+                    <p className="text-sm"><span className="font-bold text-ink">{getLocalOwner() ? 1 : 0}</span> owners · <span className="font-bold text-ink">{getLocalVehicles().length}</span> vehicles · <span className="font-bold text-ink">{getLocalDrivers().length}</span> drivers · <span className="font-bold text-ink">{getLocalFills().length}</span> fills</p>
+                  </div>
+                  <button onClick={async () => {
+                    setSyncMsg("Syncing...");
+                    const phone = getLocalOwner()?.phone;
+                    if (!phone) { setSyncMsg("No owner data in localStorage — login as owner first"); return; }
+                    const ok = await pushSync(phone);
+                    setSyncMsg(ok ? "Sync completed!" : "Sync failed — check browser console (F12) for errors");
+                    setTimeout(() => setSyncMsg(null), 4000);
+                    loadData();
+                  }} className="w-full pill-button-primary text-sm">{syncMsg || "Force Sync localStorage → Backend"}</button>
+                  {syncMsg && <p className="text-center text-sm font-medium text-ink/80">{syncMsg}</p>}
+                  <div className="flex gap-2">
+                    <input type="text" placeholder="Phone to force-sync" value={manualPhone} onChange={(e) => setManualPhone(e.target.value)} className="input-field text-sm flex-1" />
+                    <button onClick={async () => {
+                      if (!manualPhone) return;
+                      setSyncMsg("Syncing...");
+                      const ok = await pushSync(manualPhone);
+                      setSyncMsg(ok ? "Synced!" : "Failed");
+                      setTimeout(() => setSyncMsg(null), 4000);
+                      loadData();
+                    }} className="pill-button-secondary text-sm shrink-0">Sync</button>
+                  </div>
+                  <button onClick={async () => {
+                    try {
+                      const debugRes = await fetch(API_URL + "/api/debug", { signal: safeSignal(5000) });
+                      const debugData = await debugRes.json();
+                      console.log("[admin] /api/debug:", debugData);
+                      alert("Check browser console (F12) for /api/debug data");
+                    } catch (e) {
+                      console.error("[admin] /api/debug failed:", e);
+                      alert("Debug endpoint failed");
+                    }
+                  }} className="w-full bg-black/5 hover:bg-black/10 text-silver-dark text-sm font-medium py-3 rounded-2xl transition-all">Log /api/debug to Console</button>
+                </div>
               )}
             </div>
-            {!owner ? (
-              <div className="bg-gray-900 rounded-xl p-6 text-center">
-                <p className="text-gray-500 text-sm">No owners registered</p>
-              </div>
-            ) : (
-              <div className="bg-gray-900 rounded-xl overflow-hidden">
-                <table className="w-full text-xs">
-                  <thead className="bg-gray-800 text-gray-400">
-                    <tr>
-                      <th className="text-left px-4 py-2.5">Name</th>
-                      <th className="text-left px-4 py-2.5">Business</th>
-                      <th className="text-left px-4 py-2.5">City</th>
-                      <th className="text-left px-4 py-2.5">UPI</th>
-                      <th className="text-right px-4 py-2.5">Vehicles</th>
-                      <th className="text-right px-4 py-2.5">Drivers</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-gray-800">
-                    <tr className="hover:bg-gray-800/50">
-                      <td className="px-4 py-3 font-medium">{owner.fullName || "—"}</td>
-                      <td className="px-4 py-3 text-gray-400">{owner.businessName || "—"}</td>
-                      <td className="px-4 py-3 text-gray-400">{owner.city || "—"}</td>
-                      <td className="px-4 py-3 text-gray-400">{owner.upiId || "—"}</td>
-                      <td className="px-4 py-3 text-right text-gray-200">{vehicles.length}</td>
-                      <td className="px-4 py-3 text-right text-gray-200">{drivers.length}</td>
-                    </tr>
-                  </tbody>
-                </table>
-              </div>
-            )}
           </div>
         )}
 
-        {tab === "Vehicles" && (
-          <div className="mt-6">
-            <div className="flex items-center justify-between mb-3">
-              <p className="text-sm font-semibold text-gray-300">All Vehicles ({vehicles.length})</p>
-              {vehicles.length > 0 && (
-                <button onClick={() => downloadCsv(vehicles.map((v) => ({ ...v, fillCount: fillsByVehicle[v.id] || 0 })), "vehicles")} className="bg-accent/20 text-accent text-xs font-semibold px-3 py-1.5 rounded-lg hover:bg-accent/30 transition-colors">
-                  Export CSV
-                </button>
-              )}
+        {tab === "Owners" && (
+          <div className="mt-6 animate-fade-in">
+            <div className="flex items-center justify-between mb-4">
+              <p className="text-sm font-semibold text-ink/70 tracking-wide">All Owners ({data.owners.length})</p>
+              {data.owners.length > 0 && <button onClick={() => downloadCsv(data.owners, "owners")} className="text-accent text-xs font-semibold hover:text-accent-light transition-colors">Export CSV</button>}
             </div>
-            {vehicles.length === 0 ? (
-              <div className="bg-gray-900 rounded-xl p-6 text-center">
-                <p className="text-gray-500 text-sm">No vehicles added</p>
-              </div>
+            {data.owners.length === 0 ? (
+              <div className="floating-card p-8 text-center"><p className="text-silver-dark text-sm font-light">No owners registered</p></div>
             ) : (
-              <div className="bg-gray-900 rounded-xl overflow-hidden">
-                <table className="w-full text-xs">
-                  <thead className="bg-gray-800 text-gray-400">
-                    <tr>
-                      <th className="text-left px-4 py-2.5">Reg No</th>
-                      <th className="text-left px-4 py-2.5">Make/Model</th>
-                      <th className="text-left px-4 py-2.5">Fuel</th>
-                      <th className="text-left px-4 py-2.5">RC Front</th>
-                      <th className="text-left px-4 py-2.5">RC Back</th>
-                      <th className="text-right px-4 py-2.5">Fills</th>
-                    </tr>
+              <div className="floating-card overflow-hidden">
+                <table className="w-full text-sm">
+                  <thead className="bg-black/5 text-silver-dark text-xs uppercase tracking-wide">
+                    <tr><th className="text-left px-5 py-3.5 font-medium">Name</th><th className="text-left px-5 py-3.5 font-medium">Phone</th><th className="text-left px-5 py-3.5 font-medium">Email</th><th className="text-right px-5 py-3.5 font-medium">Vehicles</th><th className="text-right px-5 py-3.5 font-medium">Drivers</th></tr>
                   </thead>
-                  <tbody className="divide-y divide-gray-800">
-                    {vehicles.map((v) => (
-                      <tr key={v.id} className="hover:bg-gray-800/50">
-                        <td className="px-4 py-3 font-medium">{v.regNo}</td>
-                        <td className="px-4 py-3 text-gray-400">{v.make || "—"}</td>
-                        <td className="px-4 py-3 text-gray-400">{v.fuelType || "—"}</td>
-                        <td className="px-4 py-3">
-                          {v.rcFrontPhoto ? (
-                            <button onClick={() => setPreviewImg(v.rcFrontPhoto)} className="text-accent hover:underline">View</button>
-                          ) : "—"}
-                        </td>
-                        <td className="px-4 py-3">
-                          {v.rcBackPhoto ? (
-                            <button onClick={() => setPreviewImg(v.rcBackPhoto)} className="text-accent hover:underline">View</button>
-                          ) : "—"}
-                        </td>
-                        <td className="px-4 py-3 text-right text-gray-200">{fillsByVehicle[v.id] || 0}</td>
+                  <tbody className="divide-y divide-white/5">
+                    {data.owners.map((o) => (
+                      <tr key={o.phone} className="hover:bg-black/[0.02] transition-colors">
+                        <td className="px-5 py-4 font-medium text-ink">{o.fullName || o.name || o.businessName || "—"}</td>
+                        <td className="px-5 py-4 text-silver-dark">{o.phone || "—"}</td>
+                        <td className="px-5 py-4 text-silver-dark">{o.email || "—"}</td>
+                        <td className="px-5 py-4 text-right text-ink">{data.vehicles.filter((v) => v.ownerPhone === o.phone).length}</td>
+                        <td className="px-5 py-4 text-right text-ink">{data.drivers.filter((d) => d.ownerPhone === o.phone).length}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -207,46 +306,60 @@ export default function AdminDashboard() {
           </div>
         )}
 
-        {tab === "Drivers" && (
-          <div className="mt-6">
-            <div className="flex items-center justify-between mb-3">
-              <p className="text-sm font-semibold text-gray-300">All Drivers ({drivers.length})</p>
-              {drivers.length > 0 && (
-                <button onClick={() => downloadCsv(drivers, "drivers")} className="bg-accent/20 text-accent text-xs font-semibold px-3 py-1.5 rounded-lg hover:bg-accent/30 transition-colors">
-                  Export CSV
-                </button>
-              )}
+        {tab === "Vehicles" && (
+          <div className="mt-6 animate-fade-in">
+            <div className="flex items-center justify-between mb-4">
+              <p className="text-sm font-semibold text-ink/70 tracking-wide">All Vehicles ({data.vehicles.length})</p>
+              {data.vehicles.length > 0 && <button onClick={() => downloadCsv(data.vehicles.map((v) => ({ ...v, fillCount: fillsByVehicle[v.id] || 0 })), "vehicles")} className="text-accent text-xs font-semibold hover:text-accent-light transition-colors">Export CSV</button>}
             </div>
-            {drivers.length === 0 ? (
-              <div className="bg-gray-900 rounded-xl p-6 text-center">
-                <p className="text-gray-500 text-sm">No drivers added</p>
-              </div>
+            {data.vehicles.length === 0 ? (
+              <div className="floating-card p-8 text-center"><p className="text-silver-dark text-sm font-light">No vehicles added</p></div>
             ) : (
-              <div className="bg-gray-900 rounded-xl overflow-hidden">
-                <table className="w-full text-xs">
-                  <thead className="bg-gray-800 text-gray-400">
-                    <tr>
-                      <th className="text-left px-4 py-2.5">Name</th>
-                      <th className="text-left px-4 py-2.5">Mobile</th>
-                      <th className="text-left px-4 py-2.5">License</th>
-                      <th className="text-left px-4 py-2.5">Vehicle</th>
-                      <th className="text-left px-4 py-2.5">Driver Code</th>
-                    </tr>
+              <div className="floating-card overflow-hidden">
+                <table className="w-full text-sm">
+                  <thead className="bg-black/5 text-silver-dark text-xs uppercase tracking-wide">
+                    <tr><th className="text-left px-5 py-3.5 font-medium">Reg No</th><th className="text-left px-5 py-3.5 font-medium">Brand/Model</th><th className="text-left px-5 py-3.5 font-medium">Owner</th><th className="text-right px-5 py-3.5 font-medium">Fills</th></tr>
                   </thead>
-                  <tbody className="divide-y divide-gray-800">
-                    {drivers.map((d) => {
-                      const veh = vehicles.find((v) => v.id === d.vehicleId);
-                      return (
-                        <tr key={d.id} className="hover:bg-gray-800/50">
-                          <td className="px-4 py-3 font-medium">{d.name}</td>
-                          <td className="px-4 py-3 text-gray-400">{d.mobile}</td>
-                          <td className="px-4 py-3 text-gray-400">{d.license}</td>
-                          <td className="px-4 py-3 text-gray-400">{veh?.regNo || "—"}</td>
-                          <td className="px-4 py-3">
-                            <span className="font-mono font-bold text-accent">{d.driverCode}</span>
-                          </td>
-                        </tr>
-                      );
+                  <tbody className="divide-y divide-white/5">
+                    {data.vehicles.map((v) => {
+                      const owner = data.owners.find((o) => o.phone === v.ownerPhone);
+                      return (<tr key={v.id} className="hover:bg-black/[0.02] transition-colors">
+                        <td className="px-5 py-4 font-medium text-ink">{v.regNo}</td>
+                        <td className="px-5 py-4 text-silver-dark">{v.brand || v.make || "—"}{v.model ? " " + v.model : ""}</td>
+                        <td className="px-5 py-4 text-silver-dark">{owner?.fullName || owner?.name || "—"}</td>
+                        <td className="px-5 py-4 text-right text-ink">{fillsByVehicle[v.id] || 0}</td>
+                      </tr>);
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        )}
+
+        {tab === "Drivers" && (
+          <div className="mt-6 animate-fade-in">
+            <div className="flex items-center justify-between mb-4">
+              <p className="text-sm font-semibold text-ink/70 tracking-wide">All Drivers ({data.drivers.length})</p>
+              {data.drivers.length > 0 && <button onClick={() => downloadCsv(data.drivers, "drivers")} className="text-accent text-xs font-semibold hover:text-accent-light transition-colors">Export CSV</button>}
+            </div>
+            {data.drivers.length === 0 ? (
+              <div className="floating-card p-8 text-center"><p className="text-silver-dark text-sm font-light">No drivers added</p></div>
+            ) : (
+              <div className="floating-card overflow-hidden">
+                <table className="w-full text-sm">
+                  <thead className="bg-black/5 text-silver-dark text-xs uppercase tracking-wide">
+                    <tr><th className="text-left px-5 py-3.5 font-medium">Name</th><th className="text-left px-5 py-3.5 font-medium">Phone</th><th className="text-left px-5 py-3.5 font-medium">Vehicle</th><th className="text-left px-5 py-3.5 font-medium">Code</th></tr>
+                  </thead>
+                  <tbody className="divide-y divide-white/5">
+                    {data.drivers.map((d) => {
+                      const veh = data.vehicles.find((v) => v.id === d.vehicleId);
+                      return (<tr key={d.id} className="hover:bg-black/[0.02] transition-colors">
+                        <td className="px-5 py-4 font-medium text-ink">{d.name}</td>
+                        <td className="px-5 py-4 text-silver-dark">{d.phone || d.mobile || "—"}</td>
+                        <td className="px-5 py-4 text-silver-dark">{veh?.regNo || "—"}</td>
+                        <td className="px-5 py-4"><span className="font-mono font-bold text-accent tracking-wider">{d.driverCode}</span></td>
+                      </tr>);
                     })}
                   </tbody>
                 </table>
@@ -256,72 +369,42 @@ export default function AdminDashboard() {
         )}
 
         {tab === "Fills" && (
-          <div className="mt-6">
-            <div className="flex items-center justify-between mb-3">
-              <p className="text-sm font-semibold text-gray-300">All Fill Records ({fills.length})</p>
-              {fills.length > 0 && (
-                <button onClick={() => downloadCsv(fills.map((f) => ({
+          <div className="mt-6 animate-fade-in">
+            <div className="flex items-center justify-between mb-4">
+              <p className="text-sm font-semibold text-ink/70 tracking-wide">All Fill Records ({data.fills.length})</p>
+              {data.fills.length > 0 && (
+                <button onClick={() => downloadCsv(data.fills.map((f) => ({
                   id: f.id, vehicle: f.regNo, driver: f.driver, date: f.date, time: f.time,
                   kg: f.kg, rs: f.rs, station: f.station, odometer: f.odometer,
-                  locationStatus: f.locationStatus, mismatchDistance: f.mismatchDistance,
-                  timeGapMin: f.timeGapMin, stationLat: f.stationCoords?.lat, stationLng: f.stationCoords?.lng,
-                  odometerLat: f.odometerCoords?.lat, odometerLng: f.odometerCoords?.lng,
-                })), "fills")} className="bg-accent/20 text-accent text-xs font-semibold px-3 py-1.5 rounded-lg hover:bg-accent/30 transition-colors">
-                  Export CSV
-                </button>
+                  locationStatus: f.locationStatus, timeGapMin: f.timeGapMin,
+                })), "fills")} className="text-accent text-xs font-semibold hover:text-accent-light transition-colors">Export CSV</button>
               )}
             </div>
-            {fills.length === 0 ? (
-              <div className="bg-gray-900 rounded-xl p-6 text-center">
-                <p className="text-gray-500 text-sm">No fill records yet</p>
-              </div>
+            {data.fills.length === 0 ? (
+              <div className="floating-card p-8 text-center"><p className="text-silver-dark text-sm font-light">No fill records yet</p></div>
             ) : (
-              <div className="bg-gray-900 rounded-xl overflow-hidden">
-                <table className="w-full text-xs">
-                  <thead className="bg-gray-800 text-gray-400">
-                    <tr>
-                      <th className="text-left px-3 py-2.5">Vehicle</th>
-                      <th className="text-left px-3 py-2.5">Date</th>
-                      <th className="text-right px-3 py-2.5">KG</th>
-                      <th className="text-right px-3 py-2.5">Rs</th>
-                      <th className="text-left px-3 py-2.5">Station</th>
-                      <th className="text-left px-3 py-2.5">Status</th>
-                      <th className="text-center px-3 py-2.5">Photos</th>
-                    </tr>
+              <div className="floating-card overflow-x-auto">
+                <table className="w-full text-sm whitespace-nowrap">
+                  <thead className="bg-black/5 text-silver-dark text-xs uppercase tracking-wide">
+                    <tr><th className="text-left px-4 py-3.5 font-medium">Vehicle</th><th className="text-left px-4 py-3.5 font-medium">Date</th><th className="text-right px-4 py-3.5 font-medium">KG</th><th className="text-right px-4 py-3.5 font-medium">Rs</th><th className="text-left px-4 py-3.5 font-medium">Station</th><th className="text-left px-4 py-3.5 font-medium">Status</th><th className="text-center px-4 py-3.5 font-medium">Photos</th></tr>
                   </thead>
-                  <tbody className="divide-y divide-gray-800">
-                    {fills.map((f) => (
-                      <tr key={f.id} className="hover:bg-gray-800/50">
-                        <td className="px-3 py-2.5 font-medium">{f.regNo || "—"}</td>
-                        <td className="px-3 py-2.5 text-gray-400">{f.date}</td>
-                        <td className="px-3 py-2.5 text-right text-gray-200">{f.kg}</td>
-                        <td className="px-3 py-2.5 text-right text-gray-200">{f.rs}</td>
-                        <td className="px-3 py-2.5 text-gray-400 truncate max-w-[100px]">{f.station || "—"}</td>
-                        <td className="px-3 py-2.5">
-                          <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded-full ${
-                            f.locationStatus === "matched" ? "bg-green-900 text-green-300" :
-                            f.locationStatus === "mismatch" ? "bg-yellow-900 text-yellow-300" :
-                            "bg-gray-700 text-gray-400"
-                          }`}>{f.locationStatus}</span>
+                  <tbody className="divide-y divide-white/5">
+                    {data.fills.map((f) => (
+                      <tr key={f.id} className="hover:bg-black/[0.02] transition-colors">
+                        <td className="px-4 py-3.5 font-medium text-ink">{f.regNo || "—"}</td>
+                        <td className="px-4 py-3.5 text-silver-dark">{f.date}</td>
+                        <td className="px-4 py-3.5 text-right text-ink">{f.kg}</td>
+                        <td className="px-4 py-3.5 text-right text-ink">{f.rs}</td>
+                        <td className="px-4 py-3.5 text-silver-dark truncate max-w-[100px]">{f.station || "—"}</td>
+                        <td className="px-4 py-3.5">
+                          <span className={`text-[11px] font-semibold px-2.5 py-1 rounded-full ${f.locationStatus === "matched" ? "bg-mint/10 text-mint" : f.locationStatus === "mismatch" ? "bg-yellow-500/10 text-yellow-400" : "bg-black/5 text-silver-dark"}`}>{f.locationStatus}</span>
                         </td>
-                        <td className="px-3 py-2.5 text-center">
+                        <td className="px-4 py-3.5 text-center">
                           {(f.photos?.pumpMeter || f.photos?.receipt || f.photos?.odometer) ? (
-                            <div className="flex justify-center gap-1">
-                              {f.photos?.pumpMeter && (
-                                <button onClick={() => setPreviewImg(f.photos.pumpMeter)} className="w-6 h-6 bg-gray-700 rounded flex items-center justify-center hover:bg-gray-600" title="Pump Meter">
-                                  <svg className="w-3 h-3 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
-                                </button>
-                              )}
-                              {f.photos?.receipt && (
-                                <button onClick={() => setPreviewImg(f.photos.receipt)} className="w-6 h-6 bg-gray-700 rounded flex items-center justify-center hover:bg-gray-600" title="Receipt">
-                                  <svg className="w-3 h-3 text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
-                                </button>
-                              )}
-                              {f.photos?.odometer && (
-                                <button onClick={() => setPreviewImg(f.photos.odometer)} className="w-6 h-6 bg-gray-700 rounded flex items-center justify-center hover:bg-gray-600" title="Odometer">
-                                  <svg className="w-3 h-3 text-orange-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
-                                </button>
-                              )}
+                            <div className="flex justify-center gap-1.5">
+                              {f.photos?.pumpMeter && <button onClick={() => setPreviewImg(f.photos.pumpMeter)} className="w-7 h-7 bg-black/5 rounded-lg flex items-center justify-center hover:bg-black/10 transition-colors" title="Pump Meter"><svg className="w-3.5 h-3.5 text-accent" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg></button>}
+                              {f.photos?.receipt && <button onClick={() => setPreviewImg(f.photos.receipt)} className="w-7 h-7 bg-black/5 rounded-lg flex items-center justify-center hover:bg-black/10 transition-colors" title="Receipt"><svg className="w-3.5 h-3.5 text-mint" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg></button>}
+                              {f.photos?.odometer && <button onClick={() => setPreviewImg(f.photos.odometer)} className="w-7 h-7 bg-black/5 rounded-lg flex items-center justify-center hover:bg-black/10 transition-colors" title="Odometer"><svg className="w-3.5 h-3.5 text-accent/70" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg></button>}
                             </div>
                           ) : "—"}
                         </td>
@@ -335,26 +418,24 @@ export default function AdminDashboard() {
         )}
 
         {tab === "Media" && (
-          <div className="mt-6">
-            <div className="flex items-center justify-between mb-3">
-              <p className="text-sm font-semibold text-gray-300">All Media ({allMedia.length})</p>
-              <p className="text-gray-500 text-[10px]">Tap to view full size</p>
+          <div className="mt-6 animate-fade-in">
+            <div className="flex items-center justify-between mb-4">
+              <p className="text-sm font-semibold text-ink/70 tracking-wide">All Media ({allMedia.length})</p>
+              <p className="text-silver-dark text-xs font-light">Tap to view</p>
             </div>
             {allMedia.length === 0 ? (
-              <div className="bg-gray-900 rounded-xl p-6 text-center">
-                <p className="text-gray-500 text-sm">No media uploaded yet</p>
-              </div>
+              <div className="floating-card p-8 text-center"><p className="text-silver-dark text-sm font-light">No media uploaded yet</p></div>
             ) : (
               <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
                 {allMedia.map((m, i) => (
-                  <button key={i} onClick={() => setPreviewImg(m.src)} className="bg-gray-900 rounded-xl overflow-hidden border border-gray-800 hover:border-accent/50 transition-colors text-left">
-                    <div className="aspect-square bg-gray-800 relative">
+                  <button key={i} onClick={() => setPreviewImg(m.src)} className="floating-card overflow-hidden text-left group">
+                    <div className="aspect-square bg-primary relative">
                       <img src={m.src} alt={m.type} className="w-full h-full object-cover" />
-                      <span className="absolute top-1.5 left-1.5 text-[10px] font-semibold bg-black/70 text-white px-1.5 py-0.5 rounded">{m.type}</span>
+                      <span className="absolute top-2 left-2 text-[10px] font-semibold bg-white/60 text-ink px-2 py-1 rounded-lg backdrop-blur">{m.type}</span>
                     </div>
-                    <div className="p-2">
-                      <p className="text-xs font-medium text-gray-300 truncate">{m.fill.regNo || "—"}</p>
-                      <p className="text-[10px] text-gray-500">{m.fill.date}</p>
+                    <div className="p-3">
+                      <p className="text-sm font-medium text-ink truncate">{m.fill.regNo || "—"}</p>
+                      <p className="text-xs text-silver-dark font-light">{m.fill.date}</p>
                     </div>
                   </button>
                 ))}
@@ -364,19 +445,14 @@ export default function AdminDashboard() {
         )}
       </div>
 
-      <div className="fixed bottom-0 left-0 right-0 bg-gray-900 border-t border-gray-800 z-50">
-        <div className="max-w-5xl mx-auto flex overflow-x-auto">
-          {TABS.map((t) => (
-            <button
-              key={t}
-              onClick={() => setTab(t)}
-              className={`flex-1 min-w-[60px] py-3 text-xs font-semibold transition-colors ${
-                tab === t ? "text-accent border-t-2 border-accent bg-gray-800/50" : "text-gray-500 hover:text-gray-300"
-              }`}
-            >
-              {t}
-            </button>
-          ))}
+      {/* Bottom Tabs */}
+      <div className="fixed bottom-0 left-0 right-0 z-50">
+        <div className="glass-card rounded-none rounded-t-3xl border-t-0 mx-0">
+          <div className="max-w-5xl mx-auto flex overflow-x-auto">
+            {TABS.map((t) => (
+              <button key={t} onClick={() => setTab(t)} className={`flex-1 min-w-[60px] py-3.5 text-xs font-semibold tracking-wide transition-all duration-300 ${tab === t ? "text-accent bg-accent/5" : "text-ink/30 hover:text-ink/60"}`}>{t}</button>
+            ))}
+          </div>
         </div>
       </div>
     </div>

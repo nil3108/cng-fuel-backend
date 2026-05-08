@@ -1,118 +1,72 @@
 import { useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { useLanguage } from "../contexts/LanguageContext";
-import BottomNav from "../components/BottomNav";
-import { getVehicles, getFills } from "../db/database";
-
-const CONVENIENCE_FEE_RATE = 0.02;
+import { getOwner, getFills } from "../db/database";
 
 export default function Payment() {
+  const navigate = useNavigate();
   const { t } = useLanguage();
-  const [paying, setPaying] = useState(false);
-  const [paid, setPaid] = useState(false);
-
-  const vehicles = getVehicles();
+  const owner = getOwner();
   const fills = getFills();
-  const outstandingByVehicle = vehicles.map((v) => {
-    const vehicleFills = fills.filter((f) => f.vehicleId === v.id);
-    const weekFills = vehicleFills.filter((f) => f.date >= "2026-04-28");
-    const total = weekFills.reduce((s, f) => s + f.rs, 0);
-    return { regNo: v.regNo, amount: total, driver: v.driver };
-  });
 
-  const subtotal = outstandingByVehicle.reduce((s, v) => s + v.amount, 0);
-  const convenienceFee = Math.round(subtotal * CONVENIENCE_FEE_RATE);
-  const totalPayable = subtotal + convenienceFee;
+  const totalDue = fills.reduce((s, f) => s + (f.rs || 0), 0);
+  const [showSuccess, setShowSuccess] = useState(false);
 
-  const paymentHistory = [
-    { date: "2026-04-25", amount: 6200, status: "paid", method: "UPI" },
-    { date: "2026-04-18", amount: 5450, status: "paid", method: "UPI" },
-    { date: "2026-04-11", amount: 7100, status: "paid", method: "UPI" },
-  ];
+  const handlePay = () => setShowSuccess(true);
 
-  const handlePay = () => {
-    setPaying(true);
-    setTimeout(() => {
-      setPaying(false);
-      setPaid(true);
-    }, 2000);
-  };
+  if (showSuccess) {
+    return (
+      <div className="min-h-screen bg-primary flex flex-col items-center justify-center px-6 relative overflow-hidden">
+        <div className="absolute top-[-30%] left-[-20%] w-[80%] h-[60%] bg-mint/5 rounded-full blur-[120px]" />
+        <div className="relative z-10 text-center animate-fade-in">
+          <div className="w-20 h-20 rounded-full bg-mint/20 flex items-center justify-center mx-auto mb-6 shadow-glow-mint">
+            <svg className="w-10 h-10 text-mint" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" /></svg>
+          </div>
+          <h2 className="text-2xl font-bold text-ink mb-2 tracking-tight">{t.paymentSuccess}</h2>
+          <p className="text-silver-dark text-sm mb-8 font-light">UPI payment completed</p>
+          <button onClick={() => navigate("/dashboard")} className="pill-button-primary text-base">{t.goToDashboard}</button>
+        </div>
+      </div>
+    );
+  }
 
   return (
-    <div className="min-h-screen bg-brand-bg pb-20">
-      <div className="bg-primary px-4 pt-6 pb-8 rounded-b-3xl shadow-lg">
-        <h1 className="text-white text-2xl font-bold mb-1">{t.payment}</h1>
-        <p className="text-white/60 text-sm">{t.outstanding}</p>
-      </div>
+    <div className="min-h-screen bg-primary px-6 py-8 relative">
+      <div className="max-w-sm mx-auto animate-fade-in">
+        <button onClick={() => navigate("/dashboard")} className="text-silver-dark hover:text-ink mb-6 flex items-center gap-2 text-sm transition-colors">
+          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" /></svg>
+          Back
+        </button>
 
-      <div className="px-4 -mt-4">
-        {paid ? (
-          <div className="bg-white rounded-2xl shadow-sm p-6 text-center">
-            <div className="w-16 h-16 bg-green-500 rounded-full flex items-center justify-center mx-auto mb-4">
-              <svg className="w-8 h-8 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" />
-              </svg>
-            </div>
-            <p className="text-lg font-bold text-gray-800">{t.paymentSuccess}</p>
-            <p className="text-sm text-gray-500 mt-1">Rs {totalPayable.toLocaleString()} paid via UPI</p>
-          </div>
-        ) : (
-          <div className="bg-white rounded-2xl shadow-sm p-5 mb-4">
-            <p className="text-sm font-semibold text-gray-700 mb-3">Breakdown</p>
-            <div className="space-y-3 mb-4">
-              {outstandingByVehicle.map((v) => (
-                <div key={v.regNo} className="flex justify-between items-center py-1">
-                  <div>
-                    <p className="text-sm font-medium text-gray-800">{v.regNo}</p>
-                    <p className="text-xs text-gray-400">{v.driver}</p>
-                  </div>
-                  <p className="text-sm font-bold text-gray-800">Rs {v.amount.toLocaleString()}</p>
-                </div>
-              ))}
-            </div>
-            <div className="border-t border-gray-100 pt-3 space-y-1.5">
-              <div className="flex justify-between text-sm">
-                <span className="text-gray-500">Subtotal</span>
-                <span className="font-medium">Rs {subtotal.toLocaleString()}</span>
-              </div>
-              <div className="flex justify-between text-sm">
-                <span className="text-gray-500">{t.convenienceFee} (2%)</span>
-                <span className="font-medium">Rs {convenienceFee.toLocaleString()}</span>
-              </div>
-              <div className="flex justify-between text-base font-bold pt-1.5 border-t border-gray-100">
-                <span>{t.totalPayable}</span>
-                <span className="text-primary">Rs {totalPayable.toLocaleString()}</span>
-              </div>
-            </div>
-            <button
-              onClick={handlePay}
-              disabled={paying}
-              className="w-full bg-accent text-white font-bold py-3.5 rounded-xl text-lg mt-4 shadow-lg disabled:opacity-70"
-            >
-              {paying ? t.processing + "..." : t.payNow}
-            </button>
-          </div>
-        )}
+        <div className="floating-card p-6 mb-6 text-center">
+          <p className="text-silver-dark text-xs uppercase tracking-[0.2em] font-medium mb-2">{t.totalDue}</p>
+          <p className="text-4xl font-extrabold text-ink tracking-tight">Rs {totalDue.toLocaleString()}</p>
+        </div>
 
-        <div className="bg-white rounded-2xl shadow-sm p-5 mb-4">
-          <p className="text-sm font-semibold text-gray-700 mb-3">{t.paymentHistory}</p>
-          <div className="space-y-3">
-            {paymentHistory.map((p, i) => (
-              <div key={i} className="flex items-center justify-between py-2 border-b border-gray-100 last:border-0">
+        <div className="floating-card p-6 mb-6">
+          <p className="text-sm font-semibold text-ink/70 mb-4 tracking-wide">{t.upiPayment}</p>
+          <div className="bg-black/5 rounded-2xl p-5 text-center mb-4">
+            <p className="text-silver-dark text-xs mb-2 font-medium">UPI ID</p>
+            <p className="text-lg font-bold text-ink">{owner?.upiId || "owner@upi"}</p>
+          </div>
+          <button onClick={handlePay} className="w-full pill-button-primary text-base">Pay Rs {totalDue.toLocaleString()}</button>
+        </div>
+
+        <div className="floating-card p-5">
+          <p className="text-sm font-semibold text-ink/70 mb-3 tracking-wide">{t.recentBills}</p>
+          <div className="space-y-2 max-h-40 overflow-y-auto">
+            {fills.slice(0, 10).map((f) => (
+              <div key={f.id} className="flex justify-between items-center py-2 border-b border-black/5 last:border-0 text-sm">
                 <div>
-                  <p className="text-sm font-medium text-gray-800">{p.date}</p>
-                  <p className="text-xs text-gray-400">{p.method}</p>
+                  <p className="text-ink font-medium">{f.regNo}</p>
+                  <p className="text-silver-dark text-xs font-light">{f.date}</p>
                 </div>
-                <div className="text-right flex items-center gap-2">
-                  <p className="text-sm font-bold text-gray-800">Rs {p.amount.toLocaleString()}</p>
-                  <span className="text-xs text-green-600 bg-green-100 px-2 py-0.5 rounded-full font-medium">{t.paid}</span>
-                </div>
+                <p className="text-ink font-semibold">Rs {f.rs}</p>
               </div>
             ))}
           </div>
         </div>
       </div>
-
-      <BottomNav />
     </div>
   );
 }

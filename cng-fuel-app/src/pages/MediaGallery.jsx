@@ -1,165 +1,98 @@
 import { useState, useMemo } from "react";
-import { useNavigate } from "react-router-dom";
 import { useLanguage } from "../contexts/LanguageContext";
 import BottomNav from "../components/BottomNav";
-import PhotoViewer from "../components/PhotoViewer";
-import LocationMap from "../components/LocationMap";
-import { getFills } from "../db/database";
+import { getFills, getVehicles } from "../db/database";
 
 export default function MediaGallery() {
-  const navigate = useNavigate();
   const { t } = useLanguage();
+  const fills = getFills();
+  const vehicles = getVehicles();
+  const [previewImg, setPreviewImg] = useState(null);
   const [vehicleFilter, setVehicleFilter] = useState("all");
-  const [statusFilter, setStatusFilter] = useState("all");
-  const [expanded, setExpanded] = useState(null);
+  const [dateFrom, setDateFrom] = useState("");
+  const [dateTo, setDateTo] = useState("");
 
-  const allFills = useMemo(() => {
-    return getFills().sort((a, b) => new Date(b.date + "T" + b.time) - new Date(a.date + "T" + a.time));
-  }, []);
+  const allMedia = useMemo(() => {
+    const items = [];
+    fills.forEach((f) => {
+      if (f.photos?.pumpMeter) items.push({ type: "Pump Meter", fill: f, src: f.photos.pumpMeter });
+      if (f.photos?.receipt) items.push({ type: "Receipt", fill: f, src: f.photos.receipt });
+      if (f.photos?.odometer) items.push({ type: "Odometer", fill: f, src: f.photos.odometer });
+    });
+    return items;
+  }, [fills]);
 
-  const filteredFills = useMemo(() => {
-    return allFills.filter((f) => {
-      if (vehicleFilter !== "all" && f.regNo !== vehicleFilter) return false;
-      if (statusFilter !== "all" && f.locationStatus !== statusFilter) return false;
+  const filteredMedia = useMemo(() => {
+    return allMedia.filter((m) => {
+      if (vehicleFilter !== "all" && m.fill.regNo !== vehicleFilter) return false;
+      if (dateFrom && m.fill.date < dateFrom) return false;
+      if (dateTo && m.fill.date > dateTo) return false;
       return true;
     });
-  }, [allFills, vehicleFilter, statusFilter]);
+  }, [allMedia, vehicleFilter, dateFrom, dateTo]);
 
-  const vehicleOptions = [...new Set(allFills.map((f) => f.regNo))];
-  const totalPhotos = filteredFills.length * 3;
+  const clearFilters = () => { setVehicleFilter("all"); setDateFrom(""); setDateTo(""); };
 
   return (
-    <div className="min-h-screen bg-brand-bg pb-20">
-      <div className="bg-primary px-4 pt-6 pb-6 rounded-b-3xl shadow-lg">
-        <h1 className="text-white text-2xl font-bold">Media Gallery</h1>
-        <p className="text-white/60 text-sm mt-1">
-          {filteredFills.length} fills · {totalPhotos} photos for cross-verification
-        </p>
+    <div className="min-h-screen bg-primary pb-24">
+      {previewImg && (
+        <div className="fixed inset-0 z-[100] bg-ink/95 flex flex-col items-center justify-center" onClick={() => setPreviewImg(null)}>
+          <button onClick={() => setPreviewImg(null)} className="absolute top-6 right-6 w-10 h-10 bg-white/5 rounded-2xl flex items-center justify-center text-white/60 hover:text-white hover:bg-white/10 z-10 transition-all">
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+          </button>
+          <img src={previewImg} alt="Preview" className="max-w-[92vw] max-h-[80vh] rounded-3xl shadow-2xl object-contain" />
+        </div>
+      )}
+
+      <div className="px-6 pt-8 pb-4">
+        <div className="flex items-center justify-between mb-2">
+          <h1 className="text-2xl font-bold text-ink tracking-tight">Media</h1>
+          <p className="text-silver-dark text-xs font-light">{filteredMedia.length} of {allMedia.length} photos</p>
+        </div>
+        <p className="text-silver-dark text-sm font-light">Captured during CNG fills</p>
       </div>
 
-      <div className="px-4 -mt-3">
-        <div className="bg-white rounded-2xl shadow-sm p-4 mb-4">
-          <div className="flex gap-2 mb-3">
-            <div className="flex-1">
-              <label className="text-xs text-gray-500 font-medium mb-1 block">Vehicle</label>
-              <select
-                value={vehicleFilter}
-                onChange={(e) => setVehicleFilter(e.target.value)}
-                className="w-full bg-gray-50 border border-gray-200 rounded-xl px-3 py-2 text-sm outline-none focus:border-primary"
-              >
-                <option value="all">All Vehicles</option>
-                {vehicleOptions.map((r) => <option key={r} value={r}>{r}</option>)}
-              </select>
-            </div>
-            <div className="flex-1">
-              <label className="text-xs text-gray-500 font-medium mb-1 block">Status</label>
-              <select
-                value={statusFilter}
-                onChange={(e) => setStatusFilter(e.target.value)}
-                className="w-full bg-gray-50 border border-gray-200 rounded-xl px-3 py-2 text-sm outline-none focus:border-primary"
-              >
-                <option value="all">All Status</option>
-                <option value="matched">Matched</option>
-                <option value="mismatch">Mismatch</option>
-                <option value="unavailable">Unavailable</option>
-              </select>
-            </div>
-          </div>
-          <div className="text-xs text-gray-400 text-right">
-            Showing {filteredFills.length} of {allFills.length} fills
-          </div>
+      <div className="px-6 space-y-3 mb-4">
+        <select value={vehicleFilter} onChange={(e) => setVehicleFilter(e.target.value)} className="w-full bg-white border border-black/10 rounded-xl px-4 py-3 text-sm text-ink outline-none">
+          <option value="all">All Vehicles</option>
+          {vehicles.map((v) => (
+            <option key={v.id} value={v.regNo}>{v.regNo}</option>
+          ))}
+        </select>
+        <div className="flex gap-2">
+          <input type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} className="flex-1 bg-white border border-black/10 rounded-xl px-4 py-3 text-sm text-ink outline-none" placeholder="From date" />
+          <input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} className="flex-1 bg-white border border-black/10 rounded-xl px-4 py-3 text-sm text-ink outline-none" placeholder="To date" />
         </div>
+        {(vehicleFilter !== "all" || dateFrom || dateTo) && (
+          <button onClick={clearFilters} className="w-full bg-black/5 hover:bg-black/10 text-silver-dark text-xs font-medium py-2.5 rounded-xl transition-all border border-black/5">
+            Clear Filters
+          </button>
+        )}
+      </div>
 
-        {filteredFills.length === 0 ? (
-          <div className="bg-white rounded-2xl shadow-sm p-8 text-center">
-            <svg className="w-12 h-12 text-gray-300 mx-auto mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
-            </svg>
-            <p className="text-gray-500 text-sm">No fills match the selected filters</p>
+      <div className="px-6">
+        {filteredMedia.length === 0 ? (
+          <div className="floating-card p-8 text-center">
+            <div className="w-14 h-14 rounded-full bg-black/5 flex items-center justify-center mx-auto mb-4">
+              <svg className="w-7 h-7 text-silver-dark" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
+            </div>
+            <p className="text-silver-dark text-sm font-light">No photos match your filters</p>
           </div>
         ) : (
-          filteredFills.map((f, i) => {
-            const isExpanded = expanded === `${f.vehicleId}-${i}`;
-            return (
-              <div key={`${f.vehicleId}-${i}`} className="bg-white rounded-2xl shadow-sm mb-3 overflow-hidden">
-                <div className="p-4">
-                  <div className="flex items-start justify-between mb-3">
-                    <div className="flex items-center gap-2">
-                      <svg className={`w-4 h-4 ${f.locationStatus === "matched" ? "text-green-500" : f.locationStatus === "mismatch" ? "text-yellow-500" : "text-gray-400"}`} fill="currentColor" viewBox="0 0 24 24">
-                        <path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5-2.5s1.12-2.5 2.5-2.5 2.5 1.12 2.5 2.5-1.12 2.5-2.5 2.5z" />
-                      </svg>
-                      <div>
-                        <p className="text-primary font-bold text-base">{f.regNo}</p>
-                        <p className="text-xs text-gray-400">{f.driver}</p>
-                      </div>
-                    </div>
-                    <span className={`text-xs font-bold px-2.5 py-1 rounded-full ${
-                      f.locationStatus === "matched" ? "bg-green-100 text-green-700" :
-                      f.locationStatus === "mismatch" ? "bg-yellow-100 text-yellow-700" :
-                      "bg-gray-100 text-gray-500"
-                    }`}>
-                      {f.locationStatus}
-                    </span>
-                  </div>
-
-                  <PhotoViewer photos={f.photos} />
-
-                  <div className="text-sm space-y-1 bg-gray-50 rounded-xl p-3 mt-3">
-                    <div className="flex justify-between">
-                      <span className="text-gray-500">{f.date} · {f.time}</span>
-                      <span className="font-bold">{f.kg} kg · Rs {f.rs}</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-gray-400 text-xs">{f.station}</span>
-                      <span className="text-gray-400 text-xs">{f.odometer} km</span>
-                    </div>
-                    {f.locationStatus === "mismatch" && f.stationCoords && f.odometerCoords && (
-                      <div className="text-yellow-600 text-xs font-medium">
-                        GPS: station ({f.stationCoords.lat.toFixed(4)}, {f.stationCoords.lng.toFixed(4)}) vs odometer ({f.odometerCoords.lat.toFixed(4)}, {f.odometerCoords.lng.toFixed(4)})
-                      </div>
-                    )}
-                    {f.locationStatus === "unavailable" && (
-                      <div className="text-gray-400 text-xs">GPS: Location unavailable for odometer photo</div>
-                    )}
-                    {f.timeGapMin > 30 && (
-                      <div className="text-yellow-600 text-xs">{f.timeGapMin} min gap between photos — flagged</div>
-                    )}
-                  </div>
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+            {filteredMedia.map((m, i) => (
+              <button key={i} onClick={() => setPreviewImg(m.src)} className="floating-card overflow-hidden text-left group active:scale-[0.98] transition-all">
+                <div className="aspect-square bg-primary relative">
+                  <img src={m.src} alt={m.type} className="w-full h-full object-cover" />
+                  <span className="absolute top-2 left-2 text-[10px] font-semibold bg-white/60 text-ink px-2 py-1 rounded-lg backdrop-blur">{m.type}</span>
                 </div>
-
-                <div className="border-t border-gray-100 flex">
-                  <button
-                    onClick={() => setExpanded(isExpanded ? null : `${f.vehicleId}-${i}`)}
-                    className="flex-1 py-2.5 text-xs font-semibold text-gray-500 hover:bg-gray-50 transition-colors"
-                  >
-                    {isExpanded ? "Hide Details" : "Full Details"}
-                  </button>
-                  <button
-                    onClick={() => navigate(`/vehicle/${f.vehicleId}`)}
-                    className="flex-1 py-2.5 text-xs font-semibold text-primary hover:bg-primary/5 transition-colors border-l border-gray-100"
-                  >
-                    View Vehicle
-                  </button>
+                <div className="p-3">
+                  <p className="text-sm font-medium text-ink truncate">{m.fill.regNo || "—"}</p>
+                  <p className="text-xs text-silver-dark font-light">{m.fill.date}</p>
                 </div>
-
-                {isExpanded && (
-                  <div className="border-t border-gray-100">
-                    <div className="px-4 py-3">
-                      <LocationMap stationCoords={f.stationCoords} odometerCoords={f.odometerCoords} />
-                    </div>
-                    <div className="px-4 py-3 bg-gray-50 text-xs space-y-1.5 border-t border-gray-100">
-                      <p><span className="text-gray-400">Station Photo:</span> {f.stationPhotoTimestamp?.replace("T", " ").slice(0, 16) || "—"}</p>
-                      <p><span className="text-gray-400">Odometer Photo:</span> {f.odometerPhotoTimestamp?.replace("T", " ").slice(0, 16) || "—"}</p>
-                      <p><span className="text-gray-400">Time Gap:</span> {f.timeGapMin?.toFixed(0) || "—"} min{f.timeGapMin > 30 ? " Flagged (>30min)" : ""}</p>
-                      <p><span className="text-gray-400">Station Coords:</span> {f.stationCoords ? `${f.stationCoords.lat.toFixed(6)}, ${f.stationCoords.lng.toFixed(6)}` : "—"}</p>
-                      <p><span className="text-gray-400">Odometer Coords:</span> {f.odometerCoords ? `${f.odometerCoords.lat.toFixed(6)}, ${f.odometerCoords.lng.toFixed(6)}` : "Unavailable"}</p>
-                      <p><span className="text-gray-400">Status:</span> {f.locationStatus}</p>
-                    </div>
-                  </div>
-                )}
-              </div>
-            );
-          })
+              </button>
+            ))}
+          </div>
         )}
       </div>
 

@@ -1,5 +1,6 @@
 import { createContext, useContext, useState, useEffect } from "react";
 import { getAuth, setAuth, clearAuth } from "../db/database";
+import { pullSync, pushSync } from "../db/sync";
 
 const AuthContext = createContext();
 
@@ -18,10 +19,21 @@ export function AuthProvider({ children }) {
     }
   }, [isLoggedIn, user, role, driverInfo]);
 
-  const login = (userData, userRole) => {
+  const login = async (userData, userRole) => {
     setUser(userData);
     setIsLoggedIn(true);
     setRole(userRole);
+    const phone = userData?.phone || userData?.mobile;
+    if (phone) {
+      const synced = await pullSync(phone);
+      if (synced) {
+        const auth = getAuth();
+        if (auth?.user?.name) setUser((prev) => ({ ...prev, name: auth.user.name }));
+        if (auth?.driverInfo) setDriverInfo(auth.driverInfo);
+      } else {
+        await pushSync(phone);
+      }
+    }
   };
 
   const logout = () => {

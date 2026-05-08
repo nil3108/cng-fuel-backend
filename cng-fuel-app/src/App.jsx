@@ -80,7 +80,7 @@ export default function App() {
     <BrowserRouter>
       <AuthProvider>
         <LanguageProvider>
-          <div className="max-w-lg mx-auto min-h-screen bg-brand-bg relative">
+          <div className="max-w-lg mx-auto min-h-screen bg-primary relative">
             <AppRoutes />
           </div>
         </LanguageProvider>

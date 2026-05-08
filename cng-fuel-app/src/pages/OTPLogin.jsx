@@ -38,10 +38,10 @@ export default function OTPLogin() {
       inputRefs.current[index - 1]?.focus();
   };
 
-  const handleVerify = () => {
+  const handleVerify = async () => {
     if (otp.join("").length !== 6) return;
     const userData = { name: isOwner ? "Rajesh Patel" : "Vikram Singh", phone };
-    login(userData, role);
+    await login(userData, role);
     if (isOwner) {
       const existingOwner = getOwner();
       navigate(existingOwner ? "/dashboard" : "/register");
@@ -51,51 +51,51 @@ export default function OTPLogin() {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-primary to-primary-dark flex flex-col items-center justify-center px-6">
-      <div className="w-full max-w-sm">
-        <button onClick={() => navigate("/")} className="text-white/60 mb-8 flex items-center gap-1 text-sm">
-          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
-          </svg>
+    <div className="min-h-screen bg-primary flex flex-col items-center justify-center px-6 relative overflow-hidden">
+      <div className="absolute top-[-30%] left-[-10%] w-[60%] h-[50%] bg-accent/5 rounded-full blur-[100px]" />
+
+      <div className="w-full max-w-sm relative z-10 animate-fade-in">
+        <button onClick={() => navigate("/")} className="text-silver-dark hover:text-ink mb-8 flex items-center gap-2 text-sm transition-colors">
+          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" /></svg>
           Back
         </button>
 
-        <img src="/logo.jpg" alt="Logo" className="w-14 h-14 object-contain mb-4 mx-auto" />
-
-        <div className="flex items-center gap-2 mb-4 justify-center">
-          <span className={`text-xs font-bold px-2.5 py-1 rounded-full ${isOwner ? "bg-accent text-white" : "bg-white/20 text-white"}`}>
-            {isOwner ? t.ownerLogin : t.driverLogin}
-          </span>
+        <div className="flex flex-col items-center mb-8">
+          <img src="/logo.jpg" alt="Logo" className="w-[200px] h-[200px] object-contain rounded-2xl mb-6" />
+          <div className="flex items-center gap-2 mb-3">
+            <span className={`text-xs font-semibold px-3 py-1 rounded-full tracking-wider uppercase ${isOwner ? "bg-accent/20 text-accent" : "bg-black/5 text-silver-dark"}`}>
+              {isOwner ? t.ownerLogin : t.driverLogin}
+            </span>
+          </div>
+          <h2 className="text-2xl font-bold text-ink text-center tracking-tight">{t.enterMobile}</h2>
+          <p className="text-silver-dark text-sm mt-1 font-light">We'll send a verification code</p>
         </div>
 
-        <h2 className="text-2xl font-bold text-white mb-1 text-center">{t.enterMobile}</h2>
-        <p className="text-white/60 text-sm mb-8">We'll send a verification code</p>
-
         {step === "phone" ? (
-          <>
-            <div className="flex items-center bg-white/10 rounded-xl px-4 py-3 mb-4">
-              <span className="text-white/70 font-medium mr-2">+91</span>
+          <div className="space-y-4">
+            <div className="glass-card p-1 flex items-center">
+              <span className="text-silver-dark font-medium pl-5 pr-2">+91</span>
               <input
                 type="number"
                 maxLength={10}
                 value={phone}
                 onChange={(e) => setPhone(e.target.value.slice(0, 10))}
                 placeholder={t.mobilePlaceholder}
-                className="bg-transparent text-white text-lg w-full outline-none placeholder-white/40"
+                className="bg-transparent text-ink text-lg w-full outline-none placeholder-ink/20 py-4 pr-5"
               />
             </div>
             <button
               onClick={handleSendOTP}
               disabled={phone.length !== 10}
-              className="w-full bg-accent disabled:bg-gray-500 text-white font-bold py-3.5 rounded-xl text-lg transition-all disabled:opacity-50"
+              className="w-full pill-button-primary text-base disabled:opacity-30 disabled:cursor-not-allowed"
             >
               {t.sendOTP}
             </button>
-          </>
+          </div>
         ) : (
-          <>
-            <p className="text-white/70 text-sm mb-6 text-center">{t.otpSent}</p>
-            <div className="flex gap-2 justify-center mb-6">
+          <div className="space-y-6">
+            <p className="text-silver-dark text-sm text-center font-light">{t.otpSent}</p>
+            <div className="flex gap-3 justify-center">
               {otp.map((digit, i) => (
                 <input
                   key={i}
@@ -106,21 +106,21 @@ export default function OTPLogin() {
                   value={digit}
                   onChange={(e) => handleOtpChange(i, e.target.value)}
                   onKeyDown={(e) => handleOtpKeyDown(i, e)}
-                  className="w-12 h-14 bg-white/10 border border-white/20 rounded-xl text-white text-xl font-bold text-center outline-none focus:border-accent focus:ring-1 focus:ring-accent transition-all"
+                  className="w-12 h-14 bg-black/5 border border-black/10 rounded-2xl text-ink text-xl font-bold text-center outline-none transition-all duration-300 focus:border-accent/50 focus:shadow-glow"
                 />
               ))}
             </div>
             <button
               onClick={handleVerify}
               disabled={otp.join("").length !== 6}
-              className="w-full bg-accent disabled:bg-gray-500 text-white font-bold py-3.5 rounded-xl text-lg transition-all disabled:opacity-50"
+              className="w-full pill-button-primary text-base disabled:opacity-30 disabled:cursor-not-allowed"
             >
               {t.verify}
             </button>
-            <button onClick={() => setStep("phone")} className="w-full text-white/50 text-sm mt-4 hover:text-white/70">
+            <button onClick={() => setStep("phone")} className="w-full text-silver-dark text-sm hover:text-ink transition-colors text-center">
               Change mobile number
             </button>
-          </>
+          </div>
         )}
       </div>
     </div>

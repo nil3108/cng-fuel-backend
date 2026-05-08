@@ -1,13 +1,88 @@
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
-
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
-body {
-  font-family: 'Inter', sans-serif;
-  background: #f5f7fa;
-  -webkit-tap-highlight-color: transparent;
+@layer base {
+  body {
+    font-family: 'Inter', system-ui, sans-serif;
+    background: #FFFFFF;
+    color: #0B0B0B;
+    -webkit-tap-highlight-color: transparent;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  ::selection {
+    background: rgba(220, 38, 38, 0.3);
+    color: #0B0B0B;
+  }
+
+  ::-webkit-scrollbar {
+    width: 4px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: rgba(0,0,0,0.1);
+    border-radius: 4px;
+  }
+}
+
+@layer components {
+  .glass-card {
+    background: rgba(255, 255, 255, 0.8);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    border: 1px solid rgba(0,0,0,0.06);
+    border-radius: 16px;
+  }
+  .glass-card:hover {
+    border-color: rgba(59, 130, 246, 0.2);
+  }
+  .pill-button {
+    @apply px-6 py-3 rounded-full font-semibold text-sm transition-all duration-300;
+  }
+  .pill-button-primary {
+    @apply pill-button bg-accent text-white hover:bg-accent-dark active:scale-[0.97];
+    box-shadow: 0 4px 15px rgba(220, 38, 38, 0.25);
+  }
+  .pill-button-secondary {
+    @apply pill-button bg-black/5 text-ink hover:bg-black/10 active:scale-[0.97];
+    border: 1px solid rgba(0,0,0,0.08);
+  }
+  .pill-button-mint {
+    @apply pill-button bg-mint text-ink font-bold hover:bg-mint-light active:scale-[0.97];
+    box-shadow: 0 4px 15px rgba(46, 242, 177, 0.2);
+  }
+  .input-field {
+    @apply w-full bg-black/5 border border-black/10 rounded-2xl px-5 py-4 text-ink text-base outline-none transition-all duration-300 placeholder:text-ink/20;
+  }
+  .input-field:focus {
+    border-color: rgba(220, 38, 38, 0.4);
+    box-shadow: 0 0 0 3px rgba(220, 38, 38, 0.1);
+    background: rgba(220, 38, 38, 0.03);
+  }
+  .floating-card {
+    border-radius: 16px;
+    background: #FFFFFF;
+    box-shadow: 0 8px 32px rgba(0,0,0,0.08);
+    transition: all 0.3s ease;
+  }
+  .floating-card:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 12px 40px rgba(0,0,0,0.12);
+  }
+  .gradient-text {
+    background: linear-gradient(135deg, #DC2626 0%, #B91C1C 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+  .nav-icon {
+    @apply w-5 h-5;
+    stroke-width: 1.5;
+  }
 }
 
 input[type="number"]::-webkit-inner-spin-button,
@@ -16,3 +91,19 @@ input[type="number"]::-webkit-outer-spin-button {
   margin: 0;
 }
 input[type="number"] { -moz-appearance: textfield; }
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.animate-fade-in {
+  animation: fadeIn 0.4s ease-out;
+}
+
+@keyframes pulse-glow {
+  0%, 100% { box-shadow: 0 0 8px rgba(220,38,38,0.2); }
+  50% { box-shadow: 0 0 20px rgba(220,38,38,0.4); }
+}
+.animate-glow {
+  animation: pulse-glow 2s ease-in-out infinite;
+}

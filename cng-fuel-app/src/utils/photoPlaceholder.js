@@ -26,11 +26,34 @@ export function generatePhotoDataUri(type, index = 0) {
   return "data:image/svg+xml," + encodeURIComponent(svg);
 }
 
+function compressImage(dataUrl, maxW = 800, quality = 0.5) {
+  return new Promise((resolve) => {
+    try {
+      const img = new Image();
+      img.onload = () => {
+        const scale = Math.min(maxW / img.width, 1);
+        const w = Math.round(img.width * scale);
+        const h = Math.round(img.height * scale);
+        const c = document.createElement("canvas");
+        c.width = w; c.height = h;
+        const ctx = c.getContext("2d");
+        ctx.drawImage(img, 0, 0, w, h);
+        resolve(c.toDataURL("image/jpeg", quality));
+      };
+      img.onerror = () => resolve(dataUrl);
+      img.src = dataUrl;
+    } catch { resolve(dataUrl); }
+  });
+}
+
 export function readFileAsDataURL(file) {
   return new Promise((resolve) => {
     if (!file) { resolve(null); return; }
     const reader = new FileReader();
-    reader.onload = () => resolve(reader.result);
+    reader.onload = async () => {
+      const compressed = await compressImage(reader.result);
+      resolve(compressed);
+    };
     reader.onerror = () => resolve(generatePhotoDataUri("receipt"));
     reader.readAsDataURL(file);
   });

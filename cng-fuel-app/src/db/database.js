@@ -1,3 +1,5 @@
+import { pushSyncBg } from "./sync";
+
 const KEYS = {
   OWNER: "cng_owner",
   VEHICLES: "cng_vehicles",
@@ -17,6 +19,13 @@ function write(key, data) {
   try { localStorage.setItem(key, JSON.stringify(data)); } catch {}
 }
 
+function getPhone() {
+  const owner = read(KEYS.OWNER);
+  if (owner?.phone) return owner.phone;
+  const auth = read(KEYS.AUTH);
+  return auth?.user?.phone || auth?.phone || null;
+}
+
 /* Auth */
 export function getAuth() { return read(KEYS.AUTH); }
 export function setAuth(data) { write(KEYS.AUTH, data); }
@@ -27,6 +36,7 @@ export function getOwner() { return read(KEYS.OWNER); }
 export function setOwner(data) {
   const existing = getOwner() || {};
   write(KEYS.OWNER, { ...existing, ...data });
+  pushSyncBg(getPhone());
 }
 
 /* Vehicles */
@@ -36,6 +46,7 @@ export function addVehicle(v) {
   const id = "v" + Date.now();
   list.push({ id, ...v });
   write(KEYS.VEHICLES, list);
+  pushSyncBg(getPhone());
   return id;
 }
 export function getVehicle(id) {
@@ -50,6 +61,7 @@ export function addDriver(d) {
   const driverCode = Math.floor(100000 + Math.random() * 900000).toString();
   list.push({ id, driverCode, ...d });
   write(KEYS.DRIVERS, list);
+  pushSyncBg(getPhone());
   return { id, driverCode };
 }
 export function getDriverByCode(code) {
@@ -64,8 +76,11 @@ export function getFills() { return read(KEYS.FILLS) || []; }
 export function addFill(f) {
   const list = getFills();
   const id = "f" + Date.now();
-  list.unshift({ id, createdAt: new Date().toISOString(), ...f });
+  const ownerPhone = getOwner()?.phone || null;
+  const { id: _ignore, ...rest } = f;
+  list.unshift({ id, ownerPhone, createdAt: new Date().toISOString(), ...rest });
   write(KEYS.FILLS, list);
+  pushSyncBg(ownerPhone || getPhone());
   return id;
 }
 export function getFillsByVehicle(vehicleId) {

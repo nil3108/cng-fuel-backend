@@ -10,15 +10,15 @@ export default function LanguageToggle({ className = "" }) {
   const { lang, setLang } = useLanguage();
 
   return (
-    <div className={`flex gap-1 bg-gray-100 rounded-lg p-1 ${className}`}>
+    <div className={`flex gap-1 bg-black/5 rounded-xl p-1 ${className}`}>
       {LANGUAGES.map((l) => (
         <button
           key={l.code}
           onClick={() => setLang(l.code)}
-          className={`px-3 py-1.5 rounded-md text-sm font-semibold transition-all ${
+          className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all duration-300 ${
             lang === l.code
-              ? "bg-primary text-white shadow"
-              : "text-gray-500 hover:text-gray-700"
+              ? "bg-accent text-white shadow-glow"
+              : "text-ink/40 hover:text-ink/70"
           }`}
         >
           {l.label}

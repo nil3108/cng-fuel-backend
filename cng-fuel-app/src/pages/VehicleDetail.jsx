@@ -42,12 +42,12 @@ export default function VehicleDetail() {
   return (
     <div className="min-h-screen bg-brand-bg pb-20">
       <div className="bg-primary px-4 pt-6 pb-6">
-        <button onClick={() => navigate("/dashboard")} className="text-white/60 flex items-center gap-1 text-sm mb-4">
+        <button onClick={() => navigate("/dashboard")} className="text-ink/60 flex items-center gap-1 text-sm mb-4">
           <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" /></svg>
           Back
         </button>
-        <h1 className="text-white text-2xl font-bold">{vehicle?.regNo || "Vehicle"}</h1>
-        <p className="text-white/60 text-sm mt-1">{vehicle?.driver || "—"}</p>
+        <h1 className="text-ink text-2xl font-bold">{vehicle?.regNo || "Vehicle"}</h1>
+        <p className="text-ink/60 text-sm mt-1">{vehicle?.driver || "—"}</p>
         {hasAnomaly && (
           <div className="bg-red-500/20 border border-red-400/30 rounded-xl px-4 py-2.5 mt-4 flex items-center gap-2">
             <svg className="w-5 h-5 text-red-400 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></svg>
@@ -90,7 +90,7 @@ export default function VehicleDetail() {
         <div className="bg-white rounded-2xl shadow-sm p-4 mb-4">
           <div className="flex items-center justify-between mb-3">
             <p className="text-sm font-semibold text-gray-700">{t.fillHistory}</p>
-            <button onClick={() => downloadCsv(fills.map((f) => ({ date: f.date, time: f.time, kg: f.kg, rs: f.rs, station: f.station, odometer: f.odometer, locationStatus: f.locationStatus })), `fills-${vehicle?.regNo || "vehicle"}`)} className="bg-primary/10 text-primary text-xs font-semibold px-2.5 py-1.5 rounded-lg hover:bg-primary/20 transition-colors">CSV</button>
+            <button onClick={() => downloadCsv(fills.map((f) => ({ date: f.date, time: f.time, kg: f.kg, rs: f.rs, station: f.station, odometer: f.odometer, locationStatus: f.locationStatus })), `fills-${vehicle?.regNo || "vehicle"}`)} className="bg-ink/10 text-ink text-xs font-semibold px-2.5 py-1.5 rounded-lg hover:bg-ink/20 transition-colors">CSV</button>
           </div>
           <div className="space-y-1 max-h-96 overflow-y-auto">
             {fills.length === 0 ? (
@@ -145,7 +145,7 @@ function StatCard({ label, sub, value }) {
   return (
     <div className="bg-white rounded-2xl shadow-sm p-3.5 text-center">
       <p className="text-xs text-gray-500">{label}</p>
-      <p className="text-lg font-extrabold text-primary mt-0.5">{value}</p>
+      <p className="text-lg font-extrabold text-ink mt-0.5">{value}</p>
       <p className="text-xs text-gray-400">{sub}</p>
     </div>
   );

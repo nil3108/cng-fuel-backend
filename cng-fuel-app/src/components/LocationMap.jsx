@@ -49,12 +49,12 @@ export default function LocationMap({ stationCoords, odometerCoords, height = 22
   };
 
   return (
-    <div className="rounded-xl overflow-hidden border border-gray-200 relative" style={{ height }}>
+    <div className="rounded-2xl overflow-hidden border border-black/10 relative" style={{ height }}>
       <div className="absolute top-2 right-2 z-[1000] flex gap-1">
         {stationCoords && (
           <button
             onClick={(e) => { e.stopPropagation(); window.open(`https://www.google.com/maps?q=${stationCoords.lat},${stationCoords.lng}`, "_blank"); }}
-            className="bg-white/90 backdrop-blur text-[10px] font-semibold text-primary px-2 py-1 rounded-full shadow hover:bg-white transition-colors"
+            className="bg-black/10 backdrop-blur-sm text-[10px] font-semibold text-ink px-2 py-1 rounded-full shadow hover:bg-black/20 transition-colors"
             title="Open station location"
           >
             Station
@@ -63,7 +63,7 @@ export default function LocationMap({ stationCoords, odometerCoords, height = 22
         {odometerCoords && (
           <button
             onClick={(e) => { e.stopPropagation(); window.open(`https://www.google.com/maps?q=${odometerCoords.lat},${odometerCoords.lng}`, "_blank"); }}
-            className="bg-white/90 backdrop-blur text-[10px] font-semibold text-accent px-2 py-1 rounded-full shadow hover:bg-white transition-colors"
+            className="bg-black/10 backdrop-blur-sm text-[10px] font-semibold text-accent px-2 py-1 rounded-full shadow hover:bg-black/20 transition-colors"
             title="Open odometer photo location"
           >
             Odometer
@@ -73,7 +73,7 @@ export default function LocationMap({ stationCoords, odometerCoords, height = 22
       <div className="absolute bottom-2 left-1/2 -translate-x-1/2 z-[1000]">
         <button
           onClick={openInMaps}
-          className="bg-primary text-white text-xs font-semibold px-4 py-1.5 rounded-full shadow-lg hover:bg-primary/90 transition-colors flex items-center gap-1.5"
+          className="bg-accent text-white text-xs font-semibold px-4 py-1.5 rounded-full shadow-lg hover:bg-accent/90 transition-colors flex items-center gap-1.5"
         >
           <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
@@ -101,7 +101,7 @@ export default function LocationMap({ stationCoords, odometerCoords, height = 22
                 <p className="text-xs font-medium mb-1">CNG Station</p>
                 <button
                   onClick={() => window.open(`https://www.google.com/maps?q=${stationCoords.lat},${stationCoords.lng}`, "_blank")}
-                  className="text-[10px] bg-primary text-white px-2 py-0.5 rounded"
+                  className="text-[10px] bg-accent text-white px-2 py-0.5 rounded"
                 >
                   Open in Maps
                 </button>
