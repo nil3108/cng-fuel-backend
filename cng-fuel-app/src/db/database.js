@@ -1,0 +1,123 @@
+const KEYS = {
+  OWNER: "cng_owner",
+  VEHICLES: "cng_vehicles",
+  DRIVERS: "cng_drivers",
+  FILLS: "cng_fills",
+  AUTH: "cng_auth",
+};
+
+function read(key) {
+  try {
+    const raw = localStorage.getItem(key);
+    return raw ? JSON.parse(raw) : null;
+  } catch { return null; }
+}
+
+function write(key, data) {
+  try { localStorage.setItem(key, JSON.stringify(data)); } catch {}
+}
+
+/* Auth */
+export function getAuth() { return read(KEYS.AUTH); }
+export function setAuth(data) { write(KEYS.AUTH, data); }
+export function clearAuth() { localStorage.removeItem(KEYS.AUTH); }
+
+/* Owner */
+export function getOwner() { return read(KEYS.OWNER); }
+export function setOwner(data) {
+  const existing = getOwner() || {};
+  write(KEYS.OWNER, { ...existing, ...data });
+}
+
+/* Vehicles */
+export function getVehicles() { return read(KEYS.VEHICLES) || []; }
+export function addVehicle(v) {
+  const list = getVehicles();
+  const id = "v" + Date.now();
+  list.push({ id, ...v });
+  write(KEYS.VEHICLES, list);
+  return id;
+}
+export function getVehicle(id) {
+  return getVehicles().find((v) => v.id === id) || null;
+}
+
+/* Drivers */
+export function getDrivers() { return read(KEYS.DRIVERS) || []; }
+export function addDriver(d) {
+  const list = getDrivers();
+  const id = "d" + Date.now();
+  const driverCode = Math.floor(100000 + Math.random() * 900000).toString();
+  list.push({ id, driverCode, ...d });
+  write(KEYS.DRIVERS, list);
+  return { id, driverCode };
+}
+export function getDriverByCode(code) {
+  return getDrivers().find((d) => d.driverCode === code) || null;
+}
+export function getDriverByPhone(phone) {
+  return getDrivers().find((d) => d.mobile === phone) || null;
+}
+
+/* Fills */
+export function getFills() { return read(KEYS.FILLS) || []; }
+export function addFill(f) {
+  const list = getFills();
+  const id = "f" + Date.now();
+  list.unshift({ id, createdAt: new Date().toISOString(), ...f });
+  write(KEYS.FILLS, list);
+  return id;
+}
+export function getFillsByVehicle(vehicleId) {
+  return getFills().filter((f) => f.vehicleId === vehicleId);
+}
+
+/* Anomalies (computed from fills) */
+export function getAnomalies() {
+  const fills = getFills();
+  const anomalies = [];
+
+  fills.forEach((f) => {
+    if (f.locationStatus === "mismatch") {
+      anomalies.push({
+        id: "la" + f.id,
+        type: "location",
+        vehicleNo: f.regNo || "Unknown",
+        date: f.date,
+        vehicleId: f.vehicleId,
+        distanceKm: f.mismatchDistance || 0,
+      });
+    }
+  });
+
+  const vehicleFills = {};
+  fills.forEach((f) => {
+    if (!vehicleFills[f.vehicleId]) vehicleFills[f.vehicleId] = [];
+    vehicleFills[f.vehicleId].push(f);
+  });
+
+  Object.entries(vehicleFills).forEach(([vid, vfills]) => {
+    const recent = vfills.filter((f) => {
+      const d = new Date(f.date);
+      return !isNaN(d) && (Date.now() - d) < 14 * 86400000;
+    });
+    if (recent.length < 3) return;
+    const avg = recent.reduce((s, f) => s + f.kg, 0) / recent.length;
+    recent.forEach((f) => {
+      if (f.kg < avg * 0.8) {
+        anomalies.push({
+          id: "ea" + f.id,
+          type: "efficiency",
+          vehicleNo: f.regNo || "Unknown",
+          date: f.date,
+          vehicleId: f.vehicleId,
+          expectedKG: Math.round(avg * 10) / 10,
+          actualKG: f.kg,
+          deviation: Math.round((1 - f.kg / avg) * 1000) / 10,
+        });
+      }
+    });
+  });
+
+  return anomalies;
+}
