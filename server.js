@@ -3,8 +3,65 @@ import express from "express";
 import cors from "cors";
 import { fileURLToPath } from "url";
 import { dirname, join } from "path";
+import { existsSync, readFileSync } from "fs";
 import { Resend } from "resend";
 import db from "./db.js";
+
+// Auto-seed from data-seed.json on fresh deploy
+try {
+  const count = db.prepare("SELECT COUNT(*) as c FROM user_sync").get().c;
+  if (count === 0 && existsSync("data-seed.json")) {
+    const seed = JSON.parse(readFileSync("data-seed.json", "utf-8"));
+    const ins = db.prepare("INSERT OR REPLACE INTO user_sync (phone, data, updatedAt) VALUES (?,?,?)");
+    for (const [phone, data] of Object.entries(seed)) {
+      ins.run(phone, JSON.stringify(data), new Date().toISOString());
+    }
+    console.log(`[seed] Restored ${Object.keys(seed).length} records from data-seed.json`);
+    // Also restore other tables by re-posting each record through sync logic
+    for (const [phone, data] of Object.entries(seed)) {
+      try {
+        const { owner, vehicles, drivers, fills, auth } = data;
+        const updatedAt = new Date().toISOString();
+        const upsertOwner = db.prepare("INSERT OR REPLACE INTO owners (phone, name, email, address, createdAt) VALUES (?,?,?,?,?)");
+        const delVehicles = db.prepare("DELETE FROM vehicles WHERE ownerPhone = ?");
+        const insVehicle = db.prepare("INSERT OR REPLACE INTO vehicles (id, ownerPhone, regNo, brand, model, year, createdAt) VALUES (?,?,?,?,?,?,?)");
+        const delDrivers = db.prepare("DELETE FROM drivers WHERE ownerPhone = ?");
+        const insDriver = db.prepare("INSERT OR REPLACE INTO drivers (id, ownerPhone, name, phone, driverCode, vehicleId, createdAt) VALUES (?,?,?,?,?,?,?)");
+        const delFills = db.prepare("DELETE FROM fills WHERE ownerPhone = ?");
+        const insFill = db.prepare(`INSERT OR REPLACE INTO fills (id, ownerPhone, vehicleId, regNo, driver, kg, rate, rs, date, time, station, odometer, photos, stationCoords, odometerCoords, locationStatus, stationPhotoTimestamp, odometerPhotoTimestamp, timeGapMin, createdAt) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`);
+        const upsertAuth = db.prepare("INSERT OR REPLACE INTO auth (phone, role, name, otp, createdAt) VALUES (?,?,?,?,?)");
+        const tx = db.transaction(() => {
+          if (owner?.phone) upsertOwner.run(owner.phone, owner.name || "", owner.email || "", owner.address || "", owner.createdAt || updatedAt);
+          if (Array.isArray(vehicles)) {
+            delVehicles.run(phone);
+            for (const v of vehicles) insVehicle.run(v.id, phone, v.regNo || "", v.brand || "", v.model || "", v.year || "", v.createdAt || updatedAt);
+          }
+          if (Array.isArray(drivers)) {
+            delDrivers.run(phone);
+            for (const d of drivers) insDriver.run(d.id, phone, d.name || "", d.phone || "", d.driverCode || "", d.vehicleId || "", d.createdAt || updatedAt);
+          }
+          if (Array.isArray(fills)) {
+            delFills.run(phone);
+            for (const f of fills) insFill.run(
+              f.id, phone, f.vehicleId || "", f.regNo || "", f.driver || "",
+              f.kg || 0, f.rate || 0, f.rs || 0, f.date || "", f.time || "", f.station || "", f.odometer || "",
+              JSON.stringify(f.photos || {}), JSON.stringify(f.stationCoords || null), JSON.stringify(f.odometerCoords || null),
+              f.locationStatus || "", f.stationPhotoTimestamp || "", f.odometerPhotoTimestamp || "", f.timeGapMin || null,
+              f.createdAt || updatedAt
+            );
+          }
+          if (auth?.phone) upsertAuth.run(auth.phone, auth.role || "", auth.name || "", auth.otp || "", auth.createdAt || updatedAt);
+        });
+        tx();
+      } catch (e) {
+        console.error(`[seed] Failed to restore tables for ${phone}:`, e.message);
+      }
+    }
+    console.log(`[seed] All tables restored for ${Object.keys(seed).length} records`);
+  }
+} catch (e) {
+  console.error("[seed] Auto-seed failed:", e.message);
+}
 
 const resend = new Resend(process.env.RESEND_API_KEY || "");
 const otpStore = new Map();
@@ -86,7 +143,8 @@ app.post("/api/verify-otp", (req, res) => {
     let syncData = null;
     try {
       const emailLower = email.toLowerCase();
-      const allOwners = db.prepare("SELECT * FROM owners").all();
+      // Prefer owner with most sync data (by size) to get the richest dataset
+      const allOwners = db.prepare("SELECT o.*, LENGTH(COALESCE(s.data,'')) as dataSize FROM owners o LEFT JOIN user_sync s ON s.phone = o.phone ORDER BY dataSize DESC").all();
       const ownerRow = allOwners.find((o) => (o.email || "").toLowerCase() === emailLower);
       if (ownerRow) {
         owner = ownerRow;
@@ -94,7 +152,7 @@ app.post("/api/verify-otp", (req, res) => {
         if (syncRow) syncData = safeJson(syncRow.data, null);
       } else {
         // Fallback: scan user_sync JSON blobs for matching email
-        const allSync = db.prepare("SELECT phone, data FROM user_sync").all();
+        const allSync = db.prepare("SELECT phone, data FROM user_sync ORDER BY LENGTH(data) DESC").all();
         for (const row of allSync) {
           const parsed = safeJson(row.data, null);
           if (parsed?.owner && (parsed.owner.email || "").toLowerCase() === emailLower) {
