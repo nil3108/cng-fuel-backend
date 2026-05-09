@@ -81,15 +81,28 @@ app.post("/api/verify-otp", (req, res) => {
 
     otpStore.delete(email);
 
-    // Check if owner exists with this email → return their data to skip re-registration
+    // Find owner by email (case-insensitive) → return their data to skip re-registration
     let owner = null;
     let syncData = null;
     try {
-      const ownerRow = db.prepare("SELECT * FROM owners WHERE email = ?").get(email);
+      const emailLower = email.toLowerCase();
+      const allOwners = db.prepare("SELECT * FROM owners").all();
+      const ownerRow = allOwners.find((o) => (o.email || "").toLowerCase() === emailLower);
       if (ownerRow) {
         owner = ownerRow;
         const syncRow = db.prepare("SELECT data FROM user_sync WHERE phone = ?").get(ownerRow.phone);
         if (syncRow) syncData = safeJson(syncRow.data, null);
+      } else {
+        // Fallback: scan user_sync JSON blobs for matching email
+        const allSync = db.prepare("SELECT phone, data FROM user_sync").all();
+        for (const row of allSync) {
+          const parsed = safeJson(row.data, null);
+          if (parsed?.owner && (parsed.owner.email || "").toLowerCase() === emailLower) {
+            owner = { phone: row.phone, ...parsed.owner };
+            syncData = parsed;
+            break;
+          }
+        }
       }
     } catch {}
 
