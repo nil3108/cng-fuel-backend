@@ -17,7 +17,7 @@ app.use(cors());
 app.use(express.json({ limit: "50mb" }));
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const staticDir = join(__dirname, "..", "cng-fuel-app", "dist");
+const staticDir = join(__dirname, "dist");
 app.use(express.static(staticDir));
 
 function safeJson(val, fallback = null) {
