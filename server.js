@@ -80,7 +80,20 @@ app.post("/api/verify-otp", (req, res) => {
     if (stored.otp !== otp) return res.status(400).json({ error: "Invalid OTP" });
 
     otpStore.delete(email);
-    res.json({ ok: true });
+
+    // Check if owner exists with this email → return their data to skip re-registration
+    let owner = null;
+    let syncData = null;
+    try {
+      const ownerRow = db.prepare("SELECT * FROM owners WHERE email = ?").get(email);
+      if (ownerRow) {
+        owner = ownerRow;
+        const syncRow = db.prepare("SELECT data FROM user_sync WHERE phone = ?").get(ownerRow.phone);
+        if (syncRow) syncData = safeJson(syncRow.data, null);
+      }
+    } catch {}
+
+    res.json({ ok: true, owner, syncData });
   } catch (e) {
     res.status(500).json({ error: "Verification failed" });
   }
