@@ -1,8 +1,14 @@
+import "dotenv/config";
 import express from "express";
 import cors from "cors";
 import { fileURLToPath } from "url";
 import { dirname, join } from "path";
+import { Resend } from "resend";
 import db from "./db.js";
+
+const resend = new Resend(process.env.RESEND_API_KEY || "");
+const otpStore = new Map();
+const OTP_EXPIRY_MS = 10 * 60 * 1000; // 10 minutes
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -27,6 +33,58 @@ function deserializeFill(row) {
     odometerCoords: safeJson(row.odometerCoords),
   };
 }
+
+// ─── Email OTP endpoints ───
+app.post("/api/send-otp", async (req, res) => {
+  try {
+    const { email } = req.body;
+    if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      return res.status(400).json({ error: "Invalid email" });
+    }
+    const otp = Math.floor(100000 + Math.random() * 900000).toString();
+    otpStore.set(email, { otp, expiresAt: Date.now() + OTP_EXPIRY_MS });
+    console.log(`[otp] OTP for ${email}: ${otp}`);
+
+    if (!process.env.RESEND_API_KEY) {
+      return res.json({ ok: true, message: "OTP logged (no Resend API key configured)" });
+    }
+
+    const { data, error } = await resend.emails.send({
+      from: "CNG Fuel <onboarding@resend.dev>",
+      to: email,
+      subject: "Your OTP for CNG Fuel",
+      html: `<div style="font-family:sans-serif;max-width:400px;margin:0 auto;padding:24px"><h2 style="color:#DC2626">CNG Fuel</h2><p>Your login code:</p><div style="font-size:32px;font-weight:bold;letter-spacing:8px;text-align:center;padding:16px;background:#f5f5f5;border-radius:12px;color:#0B0B0B">${otp}</div><p style="color:#666;font-size:12px">Expires in 10 minutes</p></div>`,
+    });
+    if (error) {
+      console.error("[otp] Resend error:", error);
+      return res.status(500).json({ error: "Failed to send email" });
+    }
+    res.json({ ok: true });
+  } catch (e) {
+    console.error("[otp] send error:", e);
+    res.status(500).json({ error: "Failed to send OTP" });
+  }
+});
+
+app.post("/api/verify-otp", (req, res) => {
+  try {
+    const { email, otp } = req.body;
+    if (!email || !otp) return res.status(400).json({ error: "Email and OTP required" });
+
+    const stored = otpStore.get(email);
+    if (!stored) return res.status(400).json({ error: "No OTP sent to this email" });
+    if (Date.now() > stored.expiresAt) {
+      otpStore.delete(email);
+      return res.status(400).json({ error: "OTP expired" });
+    }
+    if (stored.otp !== otp) return res.status(400).json({ error: "Invalid OTP" });
+
+    otpStore.delete(email);
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(500).json({ error: "Verification failed" });
+  }
+});
 
 // ─── Health ───
 app.get("/api/health", (req, res) => res.json({ ok: true }));
