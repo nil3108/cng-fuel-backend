@@ -1,7 +1,6 @@
 {
   "build": {
-    "研究所": "npm install",
-    "builder": "nix"
+    "builder": "RAILPACK"
   },
   "deploy": {
     "startCommand": "node server.js",
