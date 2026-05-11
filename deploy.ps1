@@ -4,7 +4,9 @@ node dump-seed.js
 Set-Location "$PSScriptRoot\cng-fuel-app"
 npx vite build
 if (-not $?) { exit 1 }
+Remove-Item -Recurse -Force "$PSScriptRoot\dist" -ErrorAction SilentlyContinue
 Remove-Item -Recurse -Force "$PSScriptRoot\backend\dist" -ErrorAction SilentlyContinue
+Copy-Item -Recurse "dist" "$PSScriptRoot\dist"
 Copy-Item -Recurse "dist" "$PSScriptRoot\backend\dist"
 Set-Location "$PSScriptRoot\backend"
 git add -A
