@@ -52,7 +52,8 @@ export default function AdminDashboard() {
 
   const loadData = useCallback(async () => {
     try {
-      const res = await fetch((window.API_URL || '') + "/api/sync/all", { signal: safeSignal(5000) });
+      const base = (window.API_URL || '').replace(/\/+$/, '');
+      const res = await fetch(base + "/api/sync/all", { signal: safeSignal(5000) });
       if (!res.ok) throw new Error("Not available");
       const all = await res.json();
       const owners = [];
@@ -260,7 +261,8 @@ export default function AdminDashboard() {
                   </div>
                   <button onClick={async () => {
                     try {
-                      const debugRes = await fetch((window.API_URL || '') + "/api/debug", { signal: safeSignal(5000) });
+                      const debugBase = (window.API_URL || '').replace(/\/+$/, '');
+                      const debugRes = await fetch(debugBase + "/api/debug", { signal: safeSignal(5000) });
                       const debugData = await debugRes.json();
                       console.log("[admin] /api/debug:", debugData);
                       alert("Check browser console (F12) for /api/debug data");

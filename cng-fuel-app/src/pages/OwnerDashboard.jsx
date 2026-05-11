@@ -23,7 +23,7 @@ const { registerOwner, onSyncUpdate } = useWebSocket();
 
   // Brute-force sync: pull from Railway every 8 seconds and force re-render
   useEffect(() => {
-    if (syncUrl && !window.API_URL) window.API_URL = syncUrl;
+    if (syncUrl && !window.API_URL) window.API_URL = syncUrl.replace(/\/+$/, "");
 
     const interval = setInterval(() => {
       const owner = getOwner();
@@ -57,8 +57,9 @@ const { registerOwner, onSyncUpdate } = useWebSocket();
   const owner = getOwner();
 
   const saveSyncUrl = () => {
-    try { localStorage.setItem("cng_sync_url", syncUrl); } catch {}
-    window.API_URL = syncUrl || undefined;
+    const clean = (syncUrl || "").replace(/\/+$/, "");
+    try { localStorage.setItem("cng_sync_url", clean); } catch {}
+    window.API_URL = clean || undefined;
     setShowUrlInput(false);
   };
 

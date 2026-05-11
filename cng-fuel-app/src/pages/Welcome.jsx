@@ -9,7 +9,7 @@ export default function Welcome() {
   const [syncUrl, setSyncUrl] = useState(() => { try { return localStorage.getItem("cng_sync_url") || ""; } catch { return ""; } });
 
   useEffect(() => {
-    if (syncUrl && !window.API_URL) window.API_URL = syncUrl;
+    if (syncUrl && !window.API_URL) window.API_URL = syncUrl.replace(/\/+$/, "");
   }, []);
 
   const languages = [
@@ -77,7 +77,7 @@ export default function Welcome() {
           {showUrlInput && (
             <div className="mt-3 glass-card p-3 flex gap-2 items-center">
               <input type="url" value={syncUrl} onChange={(e) => setSyncUrl(e.target.value)} placeholder="https://web-production-e466.up.railway.app" className="flex-1 bg-black/5 border border-black/10 rounded-xl px-3 py-2 text-xs text-ink outline-none placeholder:text-ink/20" />
-              <button onClick={() => { localStorage.setItem("cng_sync_url", syncUrl); window.API_URL = syncUrl || undefined; setShowUrlInput(false); }} className="bg-accent text-white text-xs font-semibold px-3 py-2 rounded-xl hover:bg-accent-dark transition-all whitespace-nowrap">Save</button>
+              <button onClick={() => { const cleanUrl = (syncUrl || "").replace(/\/+$/, ""); localStorage.setItem("cng_sync_url", cleanUrl); window.API_URL = cleanUrl || undefined; setShowUrlInput(false); }} className="bg-accent text-white text-xs font-semibold px-3 py-2 rounded-xl hover:bg-accent-dark transition-all whitespace-nowrap">Save</button>
             </div>
           )}
         </div>

@@ -2,6 +2,13 @@ const DEFAULT = window.location.port === "5173" ? "http://localhost:3001" : "htt
 export const API_URL = window.API_URL || DEFAULT;
 if (!window.API_URL) window.API_URL = DEFAULT;
 
-export function setApiUrl(url) {
-  window.API_URL = url;
+export function normalizeUrl(url) {
+  return (url || "").replace(/\/+$/, "");
 }
+
+export function setApiUrl(url) {
+  window.API_URL = normalizeUrl(url);
+}
+
+// Normalize any pre-existing value
+window.API_URL = normalizeUrl(window.API_URL);

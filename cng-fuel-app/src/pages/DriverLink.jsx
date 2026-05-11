@@ -25,12 +25,13 @@ export default function DriverLink() {
 
   useEffect(() => {
     const saved = localStorage.getItem("cng_sync_url") || "";
-    if (saved && !window.API_URL) window.API_URL = saved;
+    if (saved && !window.API_URL) window.API_URL = saved.replace(/\/+$/, "");
   }, []);
 
   async function findDriverOnBackend(driverCode) {
     try {
-      const res = await fetch((window.API_URL || "") + "/api/sync/all", { signal: safeSignal(10000) });
+      const base = (window.API_URL || "").replace(/\/+$/, "");
+      const res = await fetch(base + "/api/sync/all", { signal: safeSignal(10000) });
       if (!res.ok) return null;
       const all = await res.json();
       for (const entry of all) {
@@ -92,7 +93,8 @@ export default function DriverLink() {
 
     if (allVehicles.length === 0) {
       try {
-        const res = await fetch((window.API_URL || "") + "/api/sync/all", { signal: safeSignal(10000) });
+      const base = (window.API_URL || "").replace(/\/+$/, "");
+      const res = await fetch(base + "/api/sync/all", { signal: safeSignal(10000) });
         if (res.ok) {
           const entries = await res.json();
           for (const entry of entries) {

@@ -14,7 +14,8 @@ async function apiRequest(path, opts = {}) {
   try {
     const headers = { "Content-Type": "application/json", ...opts.headers };
     const timeout = opts._timeout || (opts.method === "POST" ? 30000 : 15000);
-    const url = (window.API_URL || "") + path;
+    const base = (window.API_URL || "").replace(/\/+$/, "");
+    const url = base + path;
     console.log(`[sync] ${opts.method || "GET"} ${url} (timeout: ${timeout}ms)`);
     const res = await fetch(url, { ...opts, headers, signal: makeSignal(timeout) });
     if (!res.ok) {
@@ -140,7 +141,8 @@ export async function pushSync(phone, retries = 2) {
   }
   if (!phone) return false;
 
-  const primaryUrl = (window.API_URL || "") + `/api/sync/${phone}`;
+  const base = (window.API_URL || "").replace(/\/+$/, "");
+  const primaryUrl = base + `/api/sync/${phone}`;
   const railwayUrl = RAILWAY_URL + `/api/sync/${phone}`;
 
   // Push to primary (local dev) and railway in parallel
