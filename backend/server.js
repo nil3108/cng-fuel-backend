@@ -184,19 +184,22 @@ app.post("/api/send-otp", async (req, res) => {
     otpStore.set(email, { otp, expiresAt: Date.now() + OTP_EXPIRY_MS });
     console.log(`[otp] OTP for ${email}: ${otp}`);
 
-    const otpResponse = { ok: true, otp: otp };
+    const otpResponse = { ok: true, otp };
 
     if (process.env.RESEND_API_KEY) {
+      const timeoutMs = 5000;
       try {
-        const { data: emailData, error } = await resend.emails.send({
-          from: "CNG Fuel <onboarding@resend.dev>",
-          to: email,
-          subject: "Your OTP for CNG Fuel",
-          html: `<div style="font-family:sans-serif;max-width:400px;margin:0 auto;padding:24px"><h2 style="color:#DC2626">CNG Fuel</h2><p>Your login code:</p><div style="font-size:32px;font-weight:bold;letter-spacing:8px;text-align:center;padding:16px;background:#f5f5f5;border-radius:12px;color:#0B0B0B">${otp}</div><p style="color:#666;font-size:12px">Expires in 10 minutes</p></div>`,
-        });
-        if (error) console.error("[otp] Resend error:", error);
+        await Promise.race([
+          resend.emails.send({
+            from: "CNG Fuel <onboarding@resend.dev>",
+            to: email,
+            subject: "Your OTP for CNG Fuel",
+            html: `<div style="font-family:sans-serif;max-width:400px;margin:0 auto;padding:24px"><h2 style="color:#DC2626">CNG Fuel</h2><p>Your login code:</p><div style="font-size:32px;font-weight:bold;letter-spacing:8px;text-align:center;padding:16px;background:#f5f5f5;border-radius:12px;color:#0B0B0B">${otp}</div><p style="color:#666;font-size:12px">Expires in 10 minutes</p></div>`,
+          }),
+          new Promise((_, reject) => setTimeout(() => reject(new Error("Resend timeout")), timeoutMs)),
+        ]);
       } catch (e) {
-        console.error("[otp] Resend send failed:", e.message);
+        console.error("[otp] Resend skipped:", e.message);
       }
     }
 
