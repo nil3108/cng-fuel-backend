@@ -53,18 +53,16 @@ export default function DriverLink() {
     let foundDriver = getDriverByCode(code);
     let allVehicles = getVehicles();
 
+    // Always try backend to get owner data (needed for pushSync to know ownerPhone)
     if (!foundDriver) {
       const result = await findDriverOnBackend(code);
       if (result) {
         foundDriver = result.driver;
-        // Store ownerPhone on the driver record for fill sync
         foundDriver.ownerPhone = result.allData?.owner?.phone || "";
         allVehicles = result.allData?.vehicles || [];
-        // Store owner data on driver device so getOwner() resolves correctly for pushSync
         if (result.allData?.owner) {
           try { localStorage.setItem("cng_owner", JSON.stringify(result.allData.owner)); } catch {}
         }
-        // Store owner's fills on driver device so future pushes include existing fills
         if (Array.isArray(result.allData?.fills) && result.allData.fills.length > 0) {
           try { localStorage.setItem("cng_fills", JSON.stringify(result.allData.fills)); } catch {}
         }
@@ -72,6 +70,16 @@ export default function DriverLink() {
           const drivers = getDrivers();
           drivers.push(foundDriver);
           try { localStorage.setItem("cng_drivers", JSON.stringify(drivers)); } catch {}
+        }
+      }
+    } else {
+      // Driver found locally — still fetch owner data from backend for pushSync
+      const result = await findDriverOnBackend(code);
+      if (result?.allData?.owner) {
+        try { localStorage.setItem("cng_owner", JSON.stringify(result.allData.owner)); } catch {}
+        foundDriver.ownerPhone = result.allData.owner.phone || "";
+        if (Array.isArray(result.allData?.fills) && result.allData.fills.length > 0) {
+          try { localStorage.setItem("cng_fills", JSON.stringify(result.allData.fills)); } catch {}
         }
       }
     }

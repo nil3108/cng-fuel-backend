@@ -129,6 +129,15 @@ export async function pushSync(phone, retries = 2) {
     const auth = getAuth();
     phone = owner?.phone || auth?.user?.phone || auth?.phone || null;
   }
+  if (!phone) {
+    // Last resort: try to find ownerPhone from fills or drivers
+    const fills = getFills();
+    if (fills.length > 0 && fills[0].ownerPhone) phone = fills[0].ownerPhone;
+  }
+  if (!phone) {
+    const drivers = getDrivers();
+    if (drivers.length > 0 && drivers[0].ownerPhone) phone = drivers[0].ownerPhone;
+  }
   if (!phone) return false;
 
   const primaryUrl = (window.API_URL || "") + `/api/sync/${phone}`;

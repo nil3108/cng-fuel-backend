@@ -23,7 +23,15 @@ function getPhone() {
   const owner = read(KEYS.OWNER);
   if (owner?.phone) return owner.phone;
   const auth = read(KEYS.AUTH);
-  return auth?.user?.phone || auth?.phone || null;
+  if (auth?.user?.phone || auth?.phone) return auth?.user?.phone || auth?.phone;
+  // Fallback: try to find ownerPhone from any stored driver
+  const drivers = read(KEYS.DRIVERS);
+  if (Array.isArray(drivers)) {
+    for (const d of drivers) {
+      if (d.ownerPhone) return d.ownerPhone;
+    }
+  }
+  return null;
 }
 
 /* Auth */
@@ -67,7 +75,8 @@ export function addDriver(d) {
   const list = getDrivers();
   const id = "d" + Date.now();
   const driverCode = Math.floor(100000 + Math.random() * 900000).toString();
-  list.push({ id, driverCode, ...d });
+  const owner = getOwner();
+  list.push({ id, driverCode, ownerPhone: owner?.phone || "", ...d });
   write(KEYS.DRIVERS, list);
   pushSyncBg(getPhone());
   return { id, driverCode };
