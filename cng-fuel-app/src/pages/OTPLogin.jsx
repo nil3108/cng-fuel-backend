@@ -46,7 +46,7 @@ export default function OTPLogin() {
       });
       const data = await res.json();
       if (!res.ok) { setError(data.error || "Failed to send OTP"); setLoading(false); return; }
-      setSendStatus(data.message || "OTP sent!");
+      setSendStatus(data.otp ? `OTP: ${data.otp}` : (data.message || "OTP sent!"));
       setOtpSent(true);
       setStep("otp");
       setTimeout(() => inputRefs.current[0]?.focus(), 100);
