@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef } from "react";
+import { useState, useCallback, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { useLanguage } from "../contexts/LanguageContext";
 import { useAuth } from "../contexts/AuthContext";
@@ -6,10 +6,11 @@ import useGeolocation from "../hooks/useGeolocation";
 import { haversineDistance } from "../utils/distance";
 import { readFileAsDataURL, generatePhotoDataUri } from "../utils/photoPlaceholder";
 import LocationMap from "../components/LocationMap";
-import { addFill } from "../db/database";
+import { addFill, getVehicle } from "../db/database";
+import { pushSync } from "../db/sync";
 import Tesseract from "tesseract.js";
 
-const STEPS = ["pump-meter", "receipt", "odometer"];
+const BASE_STEPS = ["filling-video", "pump-meter", "receipt", "odometer"];
 const LOCATION_THRESHOLD = 500;
 const STATION_OPTIONS = ["Vadodara Gas Limited", "Gujarat Gas Limited", "Adani Gas"];
 
@@ -57,16 +58,16 @@ function ReviewFields({ fields, data, onChange }) {
   );
 }
 
-function StepIndicator({ current }) {
-  const idx = STEPS.indexOf(current);
+function StepIndicator({ current, steps }) {
+  const idx = steps.indexOf(current);
   return (
     <div className="flex items-center justify-center gap-2 px-6 pt-6 pb-3">
-      {STEPS.map((s, i) => (
+      {steps.map((s, i) => (
         <div key={s} className="flex items-center gap-2">
           <div className={`w-8 h-8 rounded-xl flex items-center justify-center text-sm font-bold transition-all duration-300 ${
             i <= idx ? "bg-accent text-white shadow-glow" : "bg-black/5 text-silver-dark"
           }`}>{i + 1}</div>
-          {i < STEPS.length - 1 && <div className={`w-8 h-0.5 rounded-full ${i < idx ? "bg-accent" : "bg-black/10"}`} />}
+          {i < steps.length - 1 && <div className={`w-8 h-0.5 rounded-full ${i < idx ? "bg-accent" : "bg-black/10"}`} />}
         </div>
       ))}
     </div>
@@ -83,6 +84,8 @@ export default function CngFilled() {
   const regNo = driverInfo?.regNo || "Unknown";
   const vehicleId = driverInfo?.vehicleId || "";
   const driverName = driverInfo?.driverName || "";
+  const vehicle = getVehicle(vehicleId);
+  const STEPS = ["filling-video", "pump-meter", "receipt", "odometer"];
 
   const [step, setStep] = useState("start");
   const [locating, setLocating] = useState(false);
@@ -91,7 +94,7 @@ export default function CngFilled() {
   const [odometer, setOdometer] = useState("");
   const [saved, setSaved] = useState(false);
 
-  const [photos, setPhotos] = useState({ pumpMeter: null, receipt: null, odometer: null });
+  const [photos, setPhotos] = useState({ pumpMeter: null, fillingVideo: null, receipt: null, odometer: null });
   const [stationCoords, setStationCoords] = useState(null);
   const [stationTimestamp, setStationTimestamp] = useState(null);
   const [odometerCoords, setOdometerCoords] = useState(null);
@@ -107,10 +110,16 @@ export default function CngFilled() {
 
   const resetForm = useCallback(() => {
     setStep("start"); setPumpMeter({ kg: "", amount: "" }); setReceipt({ kg: "", rate: "", amount: "", vehicleNo: "", date: "", time: "", station: "" });
-    setOdometer(""); setSaved(false); setPhotos({ pumpMeter: null, receipt: null, odometer: null });
+    setOdometer(""); setSaved(false); setPhotos({ pumpMeter: null, fillingVideo: null, receipt: null, odometer: null });
     setStationCoords(null); setStationTimestamp(null); setOdometerCoords(null); setOdometerTimestamp(null);
     setLocationStatus("pending"); setMismatchWarning(null); setLocationUnavailable(false); setOcrRunning(false); setOcrResult(""); setOcrRunning2(false); setOcrResult2(""); setStationOption("");
   }, []);
+
+  const handleFillingVideoCapture = async (file) => {
+    const dataUrl = await readFileAsDataURL(file);
+    setPhotos((p) => ({ ...p, fillingVideo: dataUrl || "video-captured" }));
+    setTimeout(() => setStep("pump-meter"), 500);
+  };
 
   const handlePumpMeterCapture = async (file) => {
     const dataUrl = await readFileAsDataURL(file) || generatePhotoDataUri("pumpMeter");
@@ -210,11 +219,25 @@ export default function CngFilled() {
   const handleSubmitAnyway = () => { setMismatchWarning(null); handleSave(); };
   const handleRetake = () => { setMismatchWarning(null); setOdometerCoords(null); setOdometerTimestamp(null); setOdometer(""); setStep("odometer"); };
 
+  const handleDriverSync = async () => {
+    const phone = driverInfo?.phone || "";
+    if (!phone) return;
+    setOcrResult2("Syncing...");
+    try {
+      const ok = await pushSync(phone);
+      setOcrResult2(ok ? "Synced! ✅" : "Sync failed");
+    } catch {
+      setOcrResult2("Sync failed");
+    }
+    setTimeout(() => setOcrResult2(""), 3000);
+  };
+
   const handleSave = () => {
     const timeGapMin = stationTimestamp && odometerTimestamp ? ((new Date(odometerTimestamp) - new Date(stationTimestamp)) / 60000) : null;
     const mismatchDistance = stationCoords && odometerCoords ? haversineDistance(stationCoords, odometerCoords) : null;
     addFill({
       vehicleId, regNo, driver: driverName,
+      ownerPhone: driverInfo?.ownerPhone || "",
       kg: parseFloat(receipt.kg) || parseFloat(pumpMeter.kg) || 0,
       rs: parseFloat(receipt.amount) || parseFloat(pumpMeter.amount) || 0,
       rate: parseFloat(receipt.rate) || 0,
@@ -222,7 +245,7 @@ export default function CngFilled() {
       time: receipt.time || new Date().toTimeString().slice(0, 5),
       station: receipt.station || "—",
       odometer: parseFloat(odometer) || 0,
-      photos: { pumpMeter: photos.pumpMeter, receipt: photos.receipt, odometer: photos.odometer },
+      photos: { pumpMeter: photos.pumpMeter, fillingVideo: photos.fillingVideo, receipt: photos.receipt, odometer: photos.odometer },
       stationCoords, odometerCoords, stationPhotoTimestamp: stationTimestamp,
       odometerPhotoTimestamp: odometerTimestamp,
       timeGapMin: timeGapMin ? parseFloat(timeGapMin.toFixed(1)) : null,
@@ -251,6 +274,7 @@ export default function CngFilled() {
               {receipt.time && <div className="flex justify-between"><span className="text-silver-dark">{t.time}</span><span className="font-semibold text-ink">{receipt.time}</span></div>}
               {receipt.station && <div className="flex justify-between"><span className="text-silver-dark">{t.station}</span><span className="font-semibold text-ink">{receipt.station}</span></div>}
               <div className="flex justify-between"><span className="text-silver-dark">Odometer</span><span className="font-semibold text-ink">{odometer} km</span></div>
+              {photos.fillingVideo && <div className="flex justify-between"><span className="text-accent text-xs flex items-center gap-1"><span className="w-2 h-2 bg-accent rounded-full" /> Filling video recorded</span></div>}
               {locationStatus === "matched" && <div className="flex justify-between"><span className="text-mint text-xs flex items-center gap-1"><span className="w-2 h-2 bg-mint rounded-full" /> Location matched</span></div>}
               {locationStatus === "mismatch" && <div className="flex justify-between"><span className="text-yellow-400 text-xs flex items-center gap-1"><span className="w-2 h-2 bg-yellow-400 rounded-full" /> Location mismatch</span></div>}
               {locationStatus === "unavailable" && <div className="flex justify-between"><span className="text-silver-dark text-xs flex items-center gap-1"><span className="w-2 h-2 bg-silver-dark rounded-full" /> Location unavailable</span></div>}
@@ -302,11 +326,31 @@ export default function CngFilled() {
           <h1 className="text-3xl font-extrabold text-ink mb-2 tracking-tight">{t.cngFilled}</h1>
           <p className="text-silver-dark text-sm mb-2 font-light">{regNo}</p>
           <p className="text-silver-dark text-xs mb-10 font-light">{t.stepPhotoVerification}</p>
-          <button onClick={() => setStep("pump-meter")} className="w-full max-w-xs pill-button-primary text-xl !py-5">{t.cngFilled}</button>
+          <button onClick={() => setStep("filling-video")} className="w-full max-w-xs pill-button-primary text-xl !py-5">{t.cngFilled}</button>
+          <button onClick={handleDriverSync} className="mt-3 w-full max-w-xs bg-black/5 hover:bg-black/10 text-ink text-sm font-semibold py-3 rounded-xl transition-all flex items-center justify-center gap-2">
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
+            Sync to Server
+          </button>
+          {ocrResult2 && <p className="text-xs mt-2 text-mint font-light">{ocrResult2}</p>}
         </div>
       )}
 
-      {step !== "start" && !mismatchWarning && <StepIndicator current={step} />}
+      {step !== "start" && !mismatchWarning && <StepIndicator current={step} steps={STEPS} />}
+
+      {step === "filling-video" && !mismatchWarning && (
+        <div className="flex-1 flex flex-col items-center justify-center px-6">
+          <p className="text-ink font-semibold text-lg mb-2 tracking-tight">Record Filling Video</p>
+          <p className="text-silver-dark text-xs mb-8 font-light">Record the complete filling from 0 to finish</p>
+          <label className="w-56 h-56 bg-black/5 border border-black/10 rounded-4xl flex flex-col items-center justify-center hover:bg-black/10 transition-all active:scale-[0.97] cursor-pointer">
+            <svg className="w-20 h-20 text-ink/30 mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
+            </svg>
+            <span className="text-ink/50 text-sm font-semibold">Record Video</span>
+            <input type="file" accept="video/*" capture="environment" className="hidden" onChange={async (e) => { if (e.target.files[0]) await handleFillingVideoCapture(e.target.files[0]); e.target.value = ""; }} />
+          </label>
+          {photos.fillingVideo && <p className="text-mint text-xs mt-4 font-light">Video captured ✓</p>}
+        </div>
+      )}
 
       {step === "pump-meter" && !mismatchWarning && <CameraCapture t={t} onCapture={handlePumpMeterCapture} label={t.takePumpMeterPhoto} />}
 
@@ -374,6 +418,7 @@ export default function CngFilled() {
                 {receipt.time && <div className="flex justify-between"><span className="text-silver-dark">{t.time}</span><span className="font-semibold text-ink">{receipt.time}</span></div>}
                 {receipt.station && <div className="flex justify-between"><span className="text-silver-dark">{t.station}</span><span className="font-semibold text-ink">{receipt.station}</span></div>}
                 <div className="flex justify-between"><span className="text-silver-dark">Odometer</span><span className="font-semibold text-ink">{odometer} km</span></div>
+                {photos.fillingVideo && <div className="flex justify-between"><span className="text-accent text-xs flex items-center gap-1"><span className="w-2 h-2 bg-accent rounded-full" /> Filling video recorded</span></div>}
                 {stationCoords && <div className="flex justify-between"><span className="text-silver-dark">Station GPS</span><span className="font-semibold text-ink text-xs">{stationCoords.lat.toFixed(4)}, {stationCoords.lng.toFixed(4)}</span></div>}
               </div>
               {(stationCoords || odometerCoords) && <div className="mt-4"><LocationMap stationCoords={stationCoords} odometerCoords={odometerCoords} height={180} /></div>}

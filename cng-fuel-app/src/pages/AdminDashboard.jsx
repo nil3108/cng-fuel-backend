@@ -3,7 +3,6 @@ import { useNavigate } from "react-router-dom";
 import { getOwner as getLocalOwner, getVehicles as getLocalVehicles, getDrivers as getLocalDrivers, getFills as getLocalFills } from "../db/database";
 import { pushSync } from "../db/sync";
 import { downloadCsv } from "../utils/exportCsv";
-import { API_URL } from "../config";
 
 const TABS = ["Overview", "Owners", "Vehicles", "Drivers", "Fills", "Media"];
 
@@ -53,7 +52,7 @@ export default function AdminDashboard() {
 
   const loadData = useCallback(async () => {
     try {
-      const res = await fetch(API_URL + "/api/sync/all", { signal: safeSignal(5000) });
+      const res = await fetch((window.API_URL || '') + "/api/sync/all", { signal: safeSignal(5000) });
       if (!res.ok) throw new Error("Not available");
       const all = await res.json();
       const owners = [];
@@ -105,9 +104,10 @@ export default function AdminDashboard() {
     navigate("/admin-login");
   };
 
-  const videoFills = data.fills.filter((f) => f.photos && (Array.isArray(f.photos) ? f.photos.length > 0 : (f.photos.pumpMeter || f.photos.receipt || f.photos.odometer)));
+  const videoFills = data.fills.filter((f) => f.photos && (Array.isArray(f.photos) ? f.photos.length > 0 : (f.photos.fillingVideo || f.photos.pumpMeter || f.photos.receipt || f.photos.odometer)));
   const allMedia = [];
   data.fills.forEach((f) => {
+    if (f.photos?.fillingVideo) allMedia.push({ type: "Filling Video", fill: f, src: f.photos.fillingVideo });
     if (f.photos?.pumpMeter) allMedia.push({ type: "Pump Meter", fill: f, src: f.photos.pumpMeter });
     if (f.photos?.receipt) allMedia.push({ type: "Receipt", fill: f, src: f.photos.receipt });
     if (f.photos?.odometer) allMedia.push({ type: "Odometer", fill: f, src: f.photos.odometer });
@@ -260,7 +260,7 @@ export default function AdminDashboard() {
                   </div>
                   <button onClick={async () => {
                     try {
-                      const debugRes = await fetch(API_URL + "/api/debug", { signal: safeSignal(5000) });
+                      const debugRes = await fetch((window.API_URL || '') + "/api/debug", { signal: safeSignal(5000) });
                       const debugData = await debugRes.json();
                       console.log("[admin] /api/debug:", debugData);
                       alert("Check browser console (F12) for /api/debug data");
@@ -400,8 +400,9 @@ export default function AdminDashboard() {
                           <span className={`text-[11px] font-semibold px-2.5 py-1 rounded-full ${f.locationStatus === "matched" ? "bg-mint/10 text-mint" : f.locationStatus === "mismatch" ? "bg-yellow-500/10 text-yellow-400" : "bg-black/5 text-silver-dark"}`}>{f.locationStatus}</span>
                         </td>
                         <td className="px-4 py-3.5 text-center">
-                          {(f.photos?.pumpMeter || f.photos?.receipt || f.photos?.odometer) ? (
+                          {(f.photos?.fillingVideo || f.photos?.pumpMeter || f.photos?.receipt || f.photos?.odometer) ? (
                             <div className="flex justify-center gap-1.5">
+                              {f.photos?.fillingVideo && <button onClick={() => setPreviewImg(f.photos.fillingVideo)} className="w-7 h-7 bg-accent/10 rounded-lg flex items-center justify-center hover:bg-accent/20 transition-colors" title="Filling Video"><svg className="w-3.5 h-3.5 text-accent" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" /></svg></button>}
                               {f.photos?.pumpMeter && <button onClick={() => setPreviewImg(f.photos.pumpMeter)} className="w-7 h-7 bg-black/5 rounded-lg flex items-center justify-center hover:bg-black/10 transition-colors" title="Pump Meter"><svg className="w-3.5 h-3.5 text-accent" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg></button>}
                               {f.photos?.receipt && <button onClick={() => setPreviewImg(f.photos.receipt)} className="w-7 h-7 bg-black/5 rounded-lg flex items-center justify-center hover:bg-black/10 transition-colors" title="Receipt"><svg className="w-3.5 h-3.5 text-mint" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg></button>}
                               {f.photos?.odometer && <button onClick={() => setPreviewImg(f.photos.odometer)} className="w-7 h-7 bg-black/5 rounded-lg flex items-center justify-center hover:bg-black/10 transition-colors" title="Odometer"><svg className="w-3.5 h-3.5 text-accent/70" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg></button>}

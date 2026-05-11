@@ -15,6 +15,7 @@ export default function MediaGallery() {
   const allMedia = useMemo(() => {
     const items = [];
     fills.forEach((f) => {
+      if (f.photos?.fillingVideo) items.push({ type: "Filling Video", fill: f, src: f.photos.fillingVideo });
       if (f.photos?.pumpMeter) items.push({ type: "Pump Meter", fill: f, src: f.photos.pumpMeter });
       if (f.photos?.receipt) items.push({ type: "Receipt", fill: f, src: f.photos.receipt });
       if (f.photos?.odometer) items.push({ type: "Odometer", fill: f, src: f.photos.odometer });

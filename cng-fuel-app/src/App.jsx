@@ -1,6 +1,7 @@
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { LanguageProvider } from "./contexts/LanguageContext";
 import { AuthProvider, useAuth } from "./contexts/AuthContext";
+import { WebSocketProvider } from "./contexts/WebSocketContext";
 
 import Welcome from "./pages/Welcome";
 import OTPLogin from "./pages/OTPLogin";
@@ -16,6 +17,7 @@ import DriverLink from "./pages/DriverLink";
 import Payment from "./pages/Payment";
 import Alerts from "./pages/Alerts";
 import MediaGallery from "./pages/MediaGallery";
+import Settings from "./pages/Settings";
 import AdminLogin from "./pages/AdminLogin";
 import AdminDashboard from "./pages/AdminDashboard";
 
@@ -61,9 +63,10 @@ function AppRoutes() {
       <Route path="/payment" element={<OwnerOnly><Payment /></OwnerOnly>} />
       <Route path="/alerts" element={<OwnerOnly><Alerts /></OwnerOnly>} />
       <Route path="/media" element={<OwnerOnly><MediaGallery /></OwnerOnly>} />
+      <Route path="/settings" element={<OwnerOnly><Settings /></OwnerOnly>} />
 
       {/* Driver only */}
-      <Route path="/driver-link" element={<DriverOnly><DriverLink /></DriverOnly>} />
+      <Route path="/driver-link" element={<DriverLink />} />
       <Route path="/fill" element={<DriverOnly><CngFilled /></DriverOnly>} />
 
       {/* Admin */}
@@ -78,13 +81,15 @@ function AppRoutes() {
 export default function App() {
   return (
     <BrowserRouter>
-      <AuthProvider>
-        <LanguageProvider>
-          <div className="max-w-lg mx-auto min-h-screen bg-primary relative">
-            <AppRoutes />
-          </div>
-        </LanguageProvider>
-      </AuthProvider>
+      <WebSocketProvider>
+        <AuthProvider>
+          <LanguageProvider>
+            <div className="max-w-lg mx-auto min-h-screen bg-primary relative">
+              <AppRoutes />
+            </div>
+          </LanguageProvider>
+        </AuthProvider>
+      </WebSocketProvider>
     </BrowserRouter>
   );
 }

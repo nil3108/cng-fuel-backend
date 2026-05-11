@@ -4,7 +4,7 @@ import { useLanguage } from "../contexts/LanguageContext";
 import BottomNav from "../components/BottomNav";
 import PhotoViewer from "../components/PhotoViewer";
 import LocationMap from "../components/LocationMap";
-import { getVehicle, getFillsByVehicle } from "../db/database";
+import { getVehicle, getFillsByVehicle, updateVehicle } from "../db/database";
 import { downloadCsv } from "../utils/exportCsv";
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine } from "recharts";
 
@@ -14,8 +14,8 @@ export default function VehicleDetail() {
   const { id } = useParams();
   const navigate = useNavigate();
   const { t } = useLanguage();
-  const [strictMode, setStrictMode] = useState(false);
   const vehicle = getVehicle(id);
+  const [strictMode, setStrictMode] = useState(vehicle?.strictMode || false);
   const fills = getFillsByVehicle(id);
 
   const weekFills = fills.filter((f) => new Date(f.date) >= new Date(Date.now() - 7 * 86400000));
@@ -68,7 +68,7 @@ export default function VehicleDetail() {
             <p className="text-sm font-semibold text-gray-700">Efficiency Trend</p>
             <div className="flex items-center gap-2">
               <span className="text-xs text-gray-500">{t.strictMode}</span>
-              <button onClick={() => setStrictMode(!strictMode)} className={`w-10 h-5 rounded-full transition-colors relative ${strictMode ? "bg-accent" : "bg-gray-300"}`}>
+              <button onClick={() => { const v = !strictMode; setStrictMode(v); updateVehicle(id, { strictMode: v }); }} className={`w-10 h-5 rounded-full transition-colors relative ${strictMode ? "bg-accent" : "bg-gray-300"}`}>
                 <div className={`w-4 h-4 bg-white rounded-full absolute top-0.5 transition-transform ${strictMode ? "translate-x-5" : "translate-x-0.5"}`} />
               </button>
             </div>

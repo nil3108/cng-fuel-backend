@@ -1,19 +1,18 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useLanguage } from "../contexts/LanguageContext";
-import { addDriver, getVehicles, getDrivers } from "../db/database";
+import { addDriver, getDrivers } from "../db/database";
 
 export default function AddDriver() {
   const navigate = useNavigate();
   const { t } = useLanguage();
-  const vehicles = getVehicles();
   const existingDrivers = getDrivers();
 
-  const [form, setForm] = useState({ name: "", phone: "", vehicleId: vehicles[0]?.id || "" });
+  const [form, setForm] = useState({ name: "", phone: "" });
   const [newCode, setNewCode] = useState(null);
 
   const handleChange = (field, value) => setForm((p) => ({ ...p, [field]: value }));
-  const isComplete = form.name && form.phone.length >= 10 && form.vehicleId;
+  const isComplete = form.name && form.phone.length >= 10;
 
   const handleAdd = () => {
     const result = addDriver(form);
@@ -21,7 +20,7 @@ export default function AddDriver() {
   };
 
   const handleFinish = () => {
-    navigate("/terms");
+    navigate("/dashboard");
   };
 
   if (newCode) {
@@ -61,25 +60,19 @@ export default function AddDriver() {
           </div>
           <div>
             <h2 className="text-2xl font-bold text-ink tracking-tight">{t.addDriver}</h2>
-            <p className="text-silver-dark text-xs font-light">Assign driver to vehicle</p>
+            <p className="text-silver-dark text-xs font-light">Create a driver code</p>
           </div>
         </div>
 
         {existingDrivers.length > 0 && (
           <div className="floating-card p-4 mb-6">
             <p className="text-sm font-semibold text-ink/70 mb-3 tracking-wide">Existing Drivers</p>
-            {existingDrivers.map((d) => {
-              const v = vehicles.find((x) => x.id === d.vehicleId);
-              return (
-                <div key={d.id} className="flex items-center justify-between py-2 border-b border-black/5 last:border-0">
-                  <div>
-                    <p className="text-ink text-sm font-medium">{d.name}</p>
-                    <p className="text-silver-dark text-xs">{v?.regNo || "—"}</p>
-                  </div>
-                  <span className="font-mono text-accent text-sm font-bold tracking-widest">{d.driverCode}</span>
-                </div>
-              );
-            })}
+            {existingDrivers.map((d) => (
+              <div key={d.id} className="flex items-center justify-between py-2 border-b border-black/5 last:border-0">
+                <p className="text-ink text-sm font-medium">{d.name}</p>
+                <span className="font-mono text-accent text-sm font-bold tracking-widest">{d.driverCode}</span>
+              </div>
+            ))}
           </div>
         )}
 
@@ -94,20 +87,6 @@ export default function AddDriver() {
               <span className="text-silver-dark font-medium pl-5 pr-2">+91</span>
               <input type="number" maxLength={10} value={form.phone} onChange={(e) => handleChange("phone", e.target.value.slice(0, 10))} placeholder="9876543210" className="bg-transparent text-ink w-full outline-none placeholder-ink/20 py-4 pr-5" />
             </div>
-          </div>
-          <div>
-            <label className="text-sm font-medium text-ink/70 mb-2 block tracking-wide">{t.assignVehicle}</label>
-            {vehicles.length === 0 ? (
-              <p className="text-silver-dark text-sm">No vehicles available. Add a vehicle first.</p>
-            ) : (
-              <div className="space-y-2">
-                {vehicles.map((v) => (
-                  <button key={v.id} onClick={() => handleChange("vehicleId", v.id)} className={`w-full text-left px-5 py-3.5 rounded-2xl text-sm font-medium transition-all duration-300 ${form.vehicleId === v.id ? "bg-accent/20 text-accent border-accent/30 border" : "bg-black/5 text-silver-dark border border-black/5 hover:bg-black/10"}`}>
-                    {v.regNo} — {v.make} {v.model}
-                  </button>
-                ))}
-              </div>
-            )}
           </div>
         </div>
 

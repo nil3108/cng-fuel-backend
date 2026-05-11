@@ -52,6 +52,14 @@ export function addVehicle(v) {
 export function getVehicle(id) {
   return getVehicles().find((v) => v.id === id) || null;
 }
+export function updateVehicle(id, data) {
+  const list = getVehicles();
+  const idx = list.findIndex((v) => v.id === id);
+  if (idx === -1) return;
+  list[idx] = { ...list[idx], ...data };
+  write(KEYS.VEHICLES, list);
+  pushSyncBg(getPhone());
+}
 
 /* Drivers */
 export function getDrivers() { return read(KEYS.DRIVERS) || []; }
@@ -63,6 +71,11 @@ export function addDriver(d) {
   write(KEYS.DRIVERS, list);
   pushSyncBg(getPhone());
   return { id, driverCode };
+}
+export function deleteDriver(id) {
+  const list = getDrivers().filter((d) => d.id !== id);
+  write(KEYS.DRIVERS, list);
+  pushSyncBg(getPhone());
 }
 export function getDriverByCode(code) {
   return getDrivers().find((d) => d.driverCode === code) || null;
@@ -76,8 +89,9 @@ export function getFills() { return read(KEYS.FILLS) || []; }
 export function addFill(f) {
   const list = getFills();
   const id = "f" + Date.now();
-  const ownerPhone = getOwner()?.phone || null;
-  const { id: _ignore, ...rest } = f;
+  const localOwner = getOwner();
+  const ownerPhone = f.ownerPhone || localOwner?.phone || null;
+  const { id: _ignore, ownerPhone: _op, ...rest } = f;
   list.unshift({ id, ownerPhone, createdAt: new Date().toISOString(), ...rest });
   write(KEYS.FILLS, list);
   pushSyncBg(ownerPhone || getPhone());

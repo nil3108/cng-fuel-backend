@@ -1,6 +1,6 @@
 import { useState, useMemo } from "react";
 
-const LABELS = ["pumpMeter", "receipt", "odometer"];
+const LABELS = ["fillingVideo", "pumpMeter", "receipt", "odometer"];
 
 export default function PhotoViewer({ photos }) {
   const [viewer, setViewer] = useState(null);
@@ -8,7 +8,7 @@ export default function PhotoViewer({ photos }) {
   const photoMap = useMemo(() => {
     if (!photos) return null;
     if (Array.isArray(photos)) {
-      return { pumpMeter: photos[0] || null, receipt: photos[1] || null, odometer: photos[2] || null };
+      return { fillingVideo: photos[0] || null, pumpMeter: photos[1] || null, receipt: photos[2] || null, odometer: photos[3] || null };
     }
     return photos;
   }, [photos]);
@@ -16,6 +16,7 @@ export default function PhotoViewer({ photos }) {
   if (!photoMap) return null;
 
   const items = [
+    { key: "fillingVideo", label: "Filling Video", color: "border-red-500", isVideo: true },
     { key: "pumpMeter", label: "Pump Meter", color: "border-blue-500" },
     { key: "receipt", label: "Receipt", color: "border-purple-500" },
     { key: "odometer", label: "Odometer", color: "border-green-500" },
@@ -27,15 +28,22 @@ export default function PhotoViewer({ photos }) {
         {items.map((item) => (
           <button
             key={item.key}
-            onClick={() => photoMap[item.key] && setViewer({ src: photoMap[item.key], label: item.label })}
+            onClick={() => photoMap[item.key] && setViewer({ src: photoMap[item.key], label: item.label, isVideo: item.isVideo })}
             className="relative aspect-[4/3] rounded-xl overflow-hidden border-2 border-transparent hover:border-primary transition-all focus:outline-none"
           >
             {photoMap[item.key] ? (
-              <img
-                src={photoMap[item.key]}
-                alt={item.label}
-                className="w-full h-full object-cover"
-              />
+              item.isVideo ? (
+                <div className="w-full h-full bg-black/10 flex flex-col items-center justify-center">
+                  <svg className="w-8 h-8 text-red-500" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z" /></svg>
+                  <span className="text-ink/50 text-[9px] mt-1">Video</span>
+                </div>
+              ) : (
+                <img
+                  src={photoMap[item.key]}
+                  alt={item.label}
+                  className="w-full h-full object-cover"
+                />
+              )
             ) : (
               <div className="w-full h-full bg-black/5 flex items-center justify-center">
                 <span className="text-xs text-silver/50">No photo</span>
@@ -62,11 +70,20 @@ export default function PhotoViewer({ photos }) {
             </svg>
           </button>
           <p className="text-white text-sm font-semibold mb-4">{viewer.label}</p>
-          <img
-            src={viewer.src}
-            alt={viewer.label}
-            className="max-w-[90vw] max-h-[70vh] rounded-2xl shadow-2xl object-contain"
-          />
+          {viewer.isVideo ? (
+            <video
+              src={viewer.src}
+              controls
+              autoPlay
+              className="max-w-[90vw] max-h-[70vh] rounded-2xl shadow-2xl object-contain"
+            />
+          ) : (
+            <img
+              src={viewer.src}
+              alt={viewer.label}
+              className="max-w-[90vw] max-h-[70vh] rounded-2xl shadow-2xl object-contain"
+            />
+          )}
           <p className="text-white/50 text-xs mt-4">Tap anywhere to close</p>
         </div>
       )}

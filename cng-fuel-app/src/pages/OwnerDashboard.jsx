@@ -3,9 +3,10 @@ import { useNavigate } from "react-router-dom";
 import { useLanguage } from "../contexts/LanguageContext";
 import BottomNav from "../components/BottomNav";
 import LanguageToggle from "../components/LanguageToggle";
-import { getOwner, getVehicles, getFills, getAnomalies, getDrivers } from "../db/database";
+import { getOwner, getVehicles, getFills, getAnomalies, getDrivers, deleteDriver } from "../db/database";
 import { pullSync, pushSync } from "../db/sync";
 import { downloadCsv } from "../utils/exportCsv";
+import { useWebSocket } from "../contexts/WebSocketContext";
 
 export default function OwnerDashboard() {
   const navigate = useNavigate();
@@ -14,32 +15,65 @@ export default function OwnerDashboard() {
   const [showAllFills, setShowAllFills] = useState(false);
   const [refresh, setRefresh] = useState(0);
   const [syncStatus, setSyncStatus] = useState("");
+  const [syncUrl, setSyncUrl] = useState(() => { try { return localStorage.getItem("cng_sync_url") || ""; } catch { return ""; } });
+  const [showUrlInput, setShowUrlInput] = useState(false);
 
+const { registerOwner, onSyncUpdate } = useWebSocket();
+
+  // Brute-force sync: pull from Railway every 8 seconds and force re-render
+  useEffect(() => {
+    if (syncUrl && !window.API_URL) window.API_URL = syncUrl;
+
+    const interval = setInterval(() => {
+      const owner = getOwner();
+      if (owner?.phone) {
+        pullSync(owner.phone).then(() => setRefresh((r) => r + 1));
+      }
+    }, 8000);
+
+    return () => clearInterval(interval);
+  }, []);
+
+  // WebSocket bonus for instant updates
   useEffect(() => {
     const phone = getOwner()?.phone;
-    if (phone) {
-      pullSync(phone).then(() => setRefresh((r) => r + 1));
-      const interval = setInterval(() => {
-        pullSync(phone).then(() => setRefresh((r) => r + 1));
-      }, 30000);
-      return () => clearInterval(interval);
-    }
+    if (phone) registerOwner(phone);
+    const unsub = onSyncUpdate((data) => {
+      try {
+        if (data?.fills) localStorage.setItem("cng_fills", JSON.stringify(data.fills));
+        if (data?.vehicles) localStorage.setItem("cng_vehicles", JSON.stringify(data.vehicles));
+        if (data?.drivers) localStorage.setItem("cng_drivers", JSON.stringify(data.drivers));
+        if (data?.owner) localStorage.setItem("cng_owner", JSON.stringify(data.owner));
+        setRefresh((r) => r + 1);
+      } catch {}
+    });
+    return unsub;
   }, []);
+
+  const owner = getOwner();
+
+  const saveSyncUrl = () => {
+    try { localStorage.setItem("cng_sync_url", syncUrl); } catch {}
+    window.API_URL = syncUrl || undefined;
+    setShowUrlInput(false);
+  };
 
   const handleSync = async () => {
     setSyncStatus("Syncing...");
-    const phone = getOwner()?.phone;
+    const phone = owner?.phone;
     if (!phone) { setSyncStatus("No phone"); return; }
     const ok = await pushSync(phone);
     setSyncStatus(ok ? "Synced!" : "Failed");
     setTimeout(() => setSyncStatus(""), 3000);
   };
 
-  const owner = getOwner();
   const vehicles = getVehicles();
   const allFills = getFills();
   const anomalies = getAnomalies();
   const drivers = getDrivers();
+  const [showLinkGen, setShowLinkGen] = useState(false);
+  const [selectedDriverId, setSelectedDriverId] = useState("");
+  const baseUrl = typeof window !== "undefined" ? window.location.origin : "";
 
   const locationAnomalies = anomalies.filter((a) => a.type === "location");
 
@@ -85,10 +119,13 @@ export default function OwnerDashboard() {
               <img src="/logo.jpg" alt="Logo" className="w-12 h-12 object-contain rounded-xl" />
               <div>
                 <p className="text-ink/40 text-xs font-light tracking-wide">Welcome back,</p>
-                <h1 className="text-ink font-bold text-xl tracking-tight">{owner?.fullName || "Owner"}</h1>
+                <h1 className="text-ink font-bold text-xl tracking-tight">{owner?.firstName || "Owner"}</h1>
               </div>
             </div>
             <div className="flex items-center gap-2">
+              <button onClick={() => navigate("/settings")} className="bg-black/5 hover:bg-black/10 text-ink p-1.5 rounded-xl transition-all duration-300 border border-black/5" title="Settings">
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.066 2.573c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.573 1.066c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.066-2.573c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
+              </button>
               <button onClick={handleSync} className="bg-black/5 hover:bg-black/10 text-ink text-xs px-3 py-1.5 rounded-xl transition-all duration-300 border border-black/5" title="Sync data">
                 <span className="flex items-center gap-1.5">
                   <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
@@ -97,6 +134,47 @@ export default function OwnerDashboard() {
               </button>
               <LanguageToggle />
             </div>
+          </div>
+          <div className="flex items-center gap-2 mt-2">
+            <button onClick={() => setShowUrlInput(!showUrlInput)} className="text-silver-dark text-xs hover:text-ink transition-colors underline underline-offset-2 decoration-dotted">
+              {showUrlInput ? "Hide" : syncUrl ? "Server: ***" : "Set Server URL"}
+            </button>
+          </div>
+          {showUrlInput && (
+            <div className="floating-card p-3 mt-3 flex gap-2 items-center">
+              <input type="text" value={syncUrl} onChange={(e) => setSyncUrl(e.target.value)} placeholder="https://abc123.ngrok-free.app" className="flex-1 bg-black/5 border border-black/10 rounded-xl px-3 py-2 text-xs text-ink outline-none placeholder:text-ink/20" />
+              <button onClick={saveSyncUrl} className="bg-accent text-white text-xs font-semibold px-3 py-2 rounded-xl hover:bg-accent-dark transition-all whitespace-nowrap">Save</button>
+            </div>
+          )}
+
+          {/* Generate Driver Link */}
+          <div className="mt-3">
+            <button onClick={() => setShowLinkGen(!showLinkGen)} className="text-xs text-silver-dark hover:text-accent transition-colors underline underline-offset-2 decoration-dotted">
+              {showLinkGen ? "Hide" : "Generate Driver Link"}
+            </button>
+            {showLinkGen && (
+              <div className="floating-card p-3 mt-3">
+                <label className="text-silver-dark text-xs font-medium block mb-2 tracking-wide">Select Driver</label>
+                <select value={selectedDriverId} onChange={(e) => setSelectedDriverId(e.target.value)} className="w-full bg-black/5 border border-black/10 rounded-xl px-3 py-2 text-xs text-ink outline-none mb-3">
+                  <option className="bg-primary" value="">— Select —</option>
+                  {drivers.map((d) => (
+                    <option className="bg-primary" key={d.id} value={d.id}>{d.name} ({d.driverCode})</option>
+                  ))}
+                </select>
+                {selectedDriverId && (() => {
+                  const d = drivers.find((x) => x.id === selectedDriverId);
+                  const v = vehicles.find((x) => x.id === d?.vehicleId);
+                  if (!d || !v) return null;
+                  const link = baseUrl + "/driver-link?code=" + d.driverCode + "&driverId=" + encodeURIComponent(d.id) + "&name=" + encodeURIComponent(d.name) + "&vehicleId=" + encodeURIComponent(v.id) + "&regNo=" + encodeURIComponent(v.regNo);
+                  return (
+                    <>
+                      <p className="text-ink/60 text-xs mb-2 break-all font-light">{link}</p>
+                      <button onClick={() => { navigator.clipboard?.writeText(link); }} className="bg-accent text-white text-xs font-semibold px-3 py-2 rounded-xl hover:bg-accent/90 transition-all w-full">Copy Link</button>
+                    </>
+                  );
+                })()}
+              </div>
+            )}
           </div>
 
           {/* Weekly Spend Card */}
@@ -178,6 +256,37 @@ export default function OwnerDashboard() {
           </div>
         )}
 
+        {/* Drivers Section */}
+        <div className="flex items-center justify-between mb-4 mt-8">
+          <p className="text-ink/60 text-sm font-medium tracking-wide uppercase">Drivers</p>
+          <button onClick={() => navigate("/add-driver")} className="text-accent text-xs font-semibold hover:text-accent-light transition-colors flex items-center gap-1.5">
+            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" /></svg>
+            Add Driver
+          </button>
+        </div>
+        {drivers.length === 0 ? (
+          <div className="floating-card p-5 text-center mb-6">
+            <p className="text-silver-dark text-sm font-light">No drivers added yet</p>
+          </div>
+        ) : (
+          <div className="space-y-2 mb-6">
+            {drivers.map((d) => (
+              <div key={d.id} className="floating-card p-4 flex items-center justify-between">
+                <div>
+                  <p className="text-ink font-semibold text-sm">{d.name}</p>
+                  <p className="text-silver-dark text-xs">{d.phone || "—"}</p>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="font-mono text-accent text-sm font-bold tracking-widest bg-accent/10 px-3 py-1.5 rounded-xl">{d.driverCode}</span>
+                  <button onClick={() => { if (window.confirm(`Delete driver ${d.name}?`)) { deleteDriver(d.id); setRefresh(r => r+1); } }} className="text-ink/20 hover:text-red-500 transition-colors p-1" title="Delete driver">
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+
         {/* Fill Records */}
         {allFills.length > 0 && (
           <div className="floating-card p-5 mb-6">
@@ -202,7 +311,7 @@ export default function OwnerDashboard() {
                     <div className="flex items-center gap-3 min-w-0">
                       <svg className={`w-3.5 h-3.5 shrink-0 ${pinColor}`} fill="currentColor" viewBox="0 0 24 24"><path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5-2.5s1.12-2.5 2.5-2.5 2.5 1.12 2.5 2.5-1.12 2.5-2.5 2.5z" /></svg>
                       <span className="text-sm font-semibold text-ink shrink-0">{veh?.regNo || f.regNo}</span>
-                      <span className="text-xs text-silver-dark font-light truncate">{f.date} · {f.station || "—"}</span>
+                      <span className="text-xs text-silver-dark font-light truncate">{f.driver ? `${f.driver} · ` : ""}{f.date} · {f.station || "—"}</span>
                     </div>
                     <span className="text-sm font-bold text-ink shrink-0 ml-2">{f.kg}kg · Rs{f.rs}</span>
                   </div>

@@ -1,5 +1,5 @@
 import { createContext, useContext, useState, useEffect } from "react";
-import { getAuth, setAuth, clearAuth } from "../db/database";
+import { getAuth, setAuth, clearAuth, getVehicles, getDrivers, getFills } from "../db/database";
 import { pullSync, pushSync } from "../db/sync";
 
 const AuthContext = createContext();
@@ -23,16 +23,21 @@ export function AuthProvider({ children }) {
     setUser(userData);
     setIsLoggedIn(true);
     setRole(userRole);
-    const phone = userData?.phone || userData?.mobile;
-    if (phone) {
-      const synced = await pullSync(phone);
-      if (synced) {
-        const auth = getAuth();
-        if (auth?.user?.name) setUser((prev) => ({ ...prev, name: auth.user.name }));
-        if (auth?.driverInfo) setDriverInfo(auth.driverInfo);
-      } else {
-        await pushSync(phone);
+    try {
+      const phone = userData?.phone || userData?.mobile || getOwner()?.phone;
+      if (phone) {
+        const synced = await pullSync(phone);
+        if (synced) {
+          const auth = getAuth();
+          if (auth?.user?.name) setUser((prev) => ({ ...prev, name: auth.user.name }));
+          if (auth?.driverInfo) setDriverInfo(auth.driverInfo);
+        } else {
+          const hasLocalData = getVehicles().length > 0 || getDrivers().length > 0 || getFills().length > 0;
+          if (hasLocalData) await pushSync(phone);
+        }
       }
+    } catch (e) {
+      console.warn("[auth] login sync failed (non-fatal):", e);
     }
   };
 

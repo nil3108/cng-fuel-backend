@@ -1,5 +1,5 @@
 node_modules
-dist
+/cng-fuel-app/dist
 .vite
 *.local
 backend/node_modules
