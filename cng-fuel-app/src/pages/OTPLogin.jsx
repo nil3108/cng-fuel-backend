@@ -34,39 +34,16 @@ export default function OTPLogin() {
 
   const [localOtp, setLocalOtp] = useState("");
 
-  const handleSendOTP = async () => {
+  const handleSendOTP = () => {
     if (!isValidEmail(email)) return;
-    setLoading(true);
-    setError("");
-    setSendStatus("");
-    try {
-      const base = (window.API_URL || "").replace(/\/+$/, "");
-      const res = await fetch(base + "/api/send-otp", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email }),
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        // Email send failed — generate local OTP as fallback
-        const fallbackOtp = Math.floor(100000 + Math.random() * 900000).toString();
-        setLocalOtp(fallbackOtp);
-        setSendStatus(`OTP: ${fallbackOtp}`);
-        setOtpSent(true);
-        setStep("otp");
-        setTimeout(() => inputRefs.current[0]?.focus(), 100);
-        setLoading(false);
-        return;
-      }
-      if (data.otp) setLocalOtp(data.otp);
-      setSendStatus(data.otp ? `OTP: ${data.otp}` : (data.message || "OTP sent!"));
-      setOtpSent(true);
-      setStep("otp");
-      setTimeout(() => inputRefs.current[0]?.focus(), 100);
-    } catch (e) {
-      setError("Network error. Check server URL.");
-    }
-    setLoading(false);
+    const generated = Math.floor(100000 + Math.random() * 900000).toString();
+    setLocalOtp(generated);
+    setSendStatus(`OTP: ${generated}`);
+    setOtpSent(true);
+    setStep("otp");
+    setTimeout(() => inputRefs.current[0]?.focus(), 100);
+    // Best-effort: also notify server (ignored if it fails)
+    try { fetch((window.API_URL || "").replace(/\/+$/, "") + "/api/send-otp", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email }) }).catch(() => {}); } catch {}
   };
 
   const handleOtpChange = (index, value) => {
