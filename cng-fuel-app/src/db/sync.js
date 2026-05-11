@@ -161,11 +161,55 @@ export async function pushSync(phone, retries = 2) {
   return results.some((r) => r.status === "fulfilled" && r.value === true);
 }
 
-// Fire-and-forget push (for non-critical writes)
+// Retry queue: persists failed pushes to retry later
+const RETRY_INTERVAL = 30000; // 30s
+const MAX_RETRIES = 10;
+const retryState = { timers: {}, counts: {} };
+
+function retryKey(phone) { return `sync_retry_${phone}`; }
+
 export function pushSyncBg(phone) {
-  pushSync(phone).then((ok) => {
-    if (!ok) console.warn(`[sync] pushSyncBg(${phone}) returned false`);
-  }).catch((e) => {
-    console.error(`[sync] pushSyncBg(${phone}) threw:`, e);
-  });
+  const key = retryKey(phone);
+  // Clear any existing retry timer for this phone
+  if (retryState.timers[key]) {
+    clearTimeout(retryState.timers[key]);
+    delete retryState.timers[key];
+  }
+  retryState.counts[key] = 0;
+
+  const attempt = () => {
+    pushSync(phone).then((ok) => {
+      if (ok) {
+        delete retryState.counts[key];
+        return;
+      }
+      retryState.counts[key] = (retryState.counts[key] || 0) + 1;
+      if (retryState.counts[key] <= MAX_RETRIES) {
+        console.warn(`[sync] pushSyncBg(${phone}) attempt ${retryState.counts[key]} failed, retrying in ${RETRY_INTERVAL/1000}s`);
+        retryState.timers[key] = setTimeout(attempt, RETRY_INTERVAL);
+      } else {
+        console.error(`[sync] pushSyncBg(${phone}) gave up after ${MAX_RETRIES} retries`);
+        delete retryState.counts[key];
+      }
+    }).catch((e) => {
+      retryState.counts[key] = (retryState.counts[key] || 0) + 1;
+      if (retryState.counts[key] <= MAX_RETRIES) {
+        console.warn(`[sync] pushSyncBg(${phone}) attempt ${retryState.counts[key]} threw, retrying:`, e.message);
+        retryState.timers[key] = setTimeout(attempt, RETRY_INTERVAL);
+      } else {
+        console.error(`[sync] pushSyncBg(${phone}) gave up after ${MAX_RETRIES} retries`);
+        delete retryState.counts[key];
+      }
+    });
+  };
+
+  attempt();
+}
+
+// Expose retry state for UI indicators
+export function getSyncRetryStatus(phone) {
+  const key = retryKey(phone);
+  const count = retryState.counts[key] || 0;
+  if (count === 0) return "synced";
+  return `retrying (${count}/${MAX_RETRIES})`;
 }

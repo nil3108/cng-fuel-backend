@@ -7,7 +7,7 @@ import { haversineDistance } from "../utils/distance";
 import { readFileAsDataURL, generatePhotoDataUri } from "../utils/photoPlaceholder";
 import LocationMap from "../components/LocationMap";
 import { addFill, getVehicle } from "../db/database";
-import { pushSync } from "../db/sync";
+import { pushSync, getSyncRetryStatus } from "../db/sync";
 import Tesseract from "tesseract.js";
 
 const BASE_STEPS = ["filling-video", "pump-meter", "receipt", "odometer"];
@@ -93,6 +93,7 @@ export default function CngFilled() {
   const [receipt, setReceipt] = useState({ kg: "", rate: "", amount: "", vehicleNo: "", date: "", time: "", station: "" });
   const [odometer, setOdometer] = useState("");
   const [saved, setSaved] = useState(false);
+  const [syncRetryStatus, setSyncRetryStatus] = useState("");
 
   const [photos, setPhotos] = useState({ pumpMeter: null, fillingVideo: null, receipt: null, odometer: null });
   const [stationCoords, setStationCoords] = useState(null);
@@ -112,7 +113,7 @@ export default function CngFilled() {
     setStep("start"); setPumpMeter({ kg: "", amount: "" }); setReceipt({ kg: "", rate: "", amount: "", vehicleNo: "", date: "", time: "", station: "" });
     setOdometer(""); setSaved(false); setPhotos({ pumpMeter: null, fillingVideo: null, receipt: null, odometer: null });
     setStationCoords(null); setStationTimestamp(null); setOdometerCoords(null); setOdometerTimestamp(null);
-    setLocationStatus("pending"); setMismatchWarning(null); setLocationUnavailable(false); setOcrRunning(false); setOcrResult(""); setOcrRunning2(false); setOcrResult2(""); setStationOption("");
+    setLocationStatus("pending"); setMismatchWarning(null); setLocationUnavailable(false); setOcrRunning(false); setOcrResult(""); setOcrRunning2(false); setOcrResult2(""); setStationOption(""); setSyncRetryStatus("");
   }, []);
 
   const handleFillingVideoCapture = async (file) => {
@@ -254,6 +255,16 @@ export default function CngFilled() {
     setSaved(true);
   };
 
+  // Poll sync retry status while saved screen is shown
+  useEffect(() => {
+    if (!saved) return;
+    const iv = setInterval(() => {
+      const phone = driverInfo?.ownerPhone || driverInfo?.phone || "";
+      setSyncRetryStatus(phone ? getSyncRetryStatus(phone) : "");
+    }, 2000);
+    return () => clearInterval(iv);
+  }, [saved, driverInfo]);
+
   if (saved) {
     const timeGapMin = stationTimestamp && odometerTimestamp ? ((new Date(odometerTimestamp) - new Date(stationTimestamp)) / 60000).toFixed(0) : null;
     return (
@@ -278,6 +289,14 @@ export default function CngFilled() {
               {locationStatus === "matched" && <div className="flex justify-between"><span className="text-mint text-xs flex items-center gap-1"><span className="w-2 h-2 bg-mint rounded-full" /> Location matched</span></div>}
               {locationStatus === "mismatch" && <div className="flex justify-between"><span className="text-yellow-400 text-xs flex items-center gap-1"><span className="w-2 h-2 bg-yellow-400 rounded-full" /> Location mismatch</span></div>}
               {locationStatus === "unavailable" && <div className="flex justify-between"><span className="text-silver-dark text-xs flex items-center gap-1"><span className="w-2 h-2 bg-silver-dark rounded-full" /> Location unavailable</span></div>}
+              {syncRetryStatus && (
+                <div className="flex justify-between pt-2 border-t border-black/5 mt-2">
+                  <span className="text-silver-dark text-xs">Sync</span>
+                  <span className={`text-xs font-semibold ${syncRetryStatus === "synced" ? "text-mint" : "text-yellow-400"}`}>
+                    {syncRetryStatus === "synced" ? "Synced ✓" : syncRetryStatus}
+                  </span>
+                </div>
+              )}
             </div>
           </div>
           {isDriver ? (
