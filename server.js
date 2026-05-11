@@ -210,11 +210,25 @@ app.get("/api/sync/:phone", (req, res) => {
 app.post("/api/sync/:phone", (req, res) => {
   try {
     const { phone } = req.params;
-    const data = req.body;
-    if (!data || typeof data !== "object") {
+    const incoming = req.body;
+    if (!incoming || typeof incoming !== "object") {
       console.error(`[sync] Invalid body from ${phone}`);
       return res.status(400).json({ error: "Invalid request body" });
     }
+
+    // Server-side merge: read existing data and combine with incoming
+    const existingRow = db.prepare("SELECT data FROM user_sync WHERE phone = ?").get(phone);
+    const existing = existingRow ? safeJson(existingRow.data, {}) : {};
+
+    // Keep existing owner/vehicles/drivers unless incoming has them
+    const data = {
+      owner: incoming.owner?.phone ? incoming.owner : (existing.owner || null),
+      vehicles: Array.isArray(incoming.vehicles) && incoming.vehicles.length > 0 ? incoming.vehicles : (existing.vehicles || []),
+      drivers: Array.isArray(incoming.drivers) && incoming.drivers.length > 0 ? incoming.drivers : (existing.drivers || []),
+      fills: Array.isArray(incoming.fills) ? incoming.fills : (existing.fills || []),
+      auth: incoming.auth || existing.auth || null,
+    };
+
     const fillCount = Array.isArray(data.fills) ? data.fills.length : 0;
     const totalBytes = JSON.stringify(data).length;
     console.log(`[sync] POST from ${phone}: ${fillCount} fills, ${(totalBytes/1024).toFixed(1)}KB`);
