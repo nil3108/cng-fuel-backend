@@ -82,6 +82,21 @@ function safeJson(val, fallback = null) {
   try { return JSON.parse(val); } catch { return fallback; }
 }
 
+function mergeById(existing, incoming) {
+  if (!Array.isArray(existing) && !Array.isArray(incoming)) return [];
+  if (!Array.isArray(existing)) return incoming || [];
+  if (!Array.isArray(incoming)) return existing;
+  const seen = new Set(existing.map((x) => x.id));
+  const merged = [...existing];
+  for (const item of incoming) {
+    if (!seen.has(item.id)) {
+      merged.push(item);
+      seen.add(item.id);
+    }
+  }
+  return merged;
+}
+
 function deserializeFill(row) {
   return {
     ...row,
@@ -221,11 +236,12 @@ app.post("/api/sync/:phone", (req, res) => {
     const existing = existingRow ? safeJson(existingRow.data, {}) : {};
 
     // Keep existing owner/vehicles/drivers unless incoming has them
+    // Fills are merged by ID so driver pushes don't wipe owner fills
     const data = {
       owner: incoming.owner?.phone ? incoming.owner : (existing.owner || null),
       vehicles: Array.isArray(incoming.vehicles) && incoming.vehicles.length > 0 ? incoming.vehicles : (existing.vehicles || []),
       drivers: Array.isArray(incoming.drivers) && incoming.drivers.length > 0 ? incoming.drivers : (existing.drivers || []),
-      fills: Array.isArray(incoming.fills) ? incoming.fills : (existing.fills || []),
+      fills: mergeById(existing.fills, incoming.fills),
       auth: incoming.auth || existing.auth || null,
     };
 
