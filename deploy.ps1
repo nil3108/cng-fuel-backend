@@ -1,6 +1,7 @@
 # One-command deploy: dump seed → build frontend → copy → push to Railway
 Set-Location "$PSScriptRoot\backend"
 node dump-seed.js
+Copy-Item "data-seed.json" "$PSScriptRoot\data-seed.json" -Force
 Set-Location "$PSScriptRoot\cng-fuel-app"
 npx vite build
 if (-not $?) { exit 1 }

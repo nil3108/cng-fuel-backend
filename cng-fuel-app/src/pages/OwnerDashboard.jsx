@@ -15,6 +15,7 @@ export default function OwnerDashboard() {
   const [showAllFills, setShowAllFills] = useState(false);
   const [refresh, setRefresh] = useState(0);
   const [syncStatus, setSyncStatus] = useState("");
+  const [pullStatus, setPullStatus] = useState("");
   const [syncUrl, setSyncUrl] = useState(() => { try { return localStorage.getItem("cng_sync_url") || ""; } catch { return ""; } });
   const [showUrlInput, setShowUrlInput] = useState(false);
 
@@ -27,7 +28,10 @@ const { registerOwner, onSyncUpdate } = useWebSocket();
     const interval = setInterval(() => {
       const owner = getOwner();
       if (owner?.phone) {
-        pullSync(owner.phone).then(() => setRefresh((r) => r + 1));
+        pullSync(owner.phone).then((ok) => {
+          setPullStatus(ok ? "OK" : "FAIL");
+          setRefresh((r) => r + 1);
+        });
       }
     }, 8000);
 
@@ -132,6 +136,9 @@ const { registerOwner, onSyncUpdate } = useWebSocket();
                   {syncStatus || "Sync"}
                 </span>
               </button>
+              <span className={`text-[10px] font-mono px-1.5 ${pullStatus === "OK" ? "text-mint" : pullStatus === "FAIL" ? "text-red-400" : "text-silver-dark"}`}>
+                {pullStatus || "..."}
+              </span>
               <LanguageToggle />
             </div>
           </div>
