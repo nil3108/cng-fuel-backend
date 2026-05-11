@@ -4,6 +4,8 @@ import cors from "cors";
 import { fileURLToPath } from "url";
 import { dirname, join } from "path";
 import { existsSync, readFileSync } from "fs";
+import { createServer } from "http";
+import { WebSocketServer } from "ws";
 import { Resend } from "resend";
 import db from "./db.js";
 
@@ -17,7 +19,6 @@ try {
       ins.run(phone, JSON.stringify(data), new Date().toISOString());
     }
     console.log(`[seed] Restored ${Object.keys(seed).length} records from data-seed.json`);
-    // Also restore other tables by re-posting each record through sync logic
     for (const [phone, data] of Object.entries(seed)) {
       try {
         const { owner, vehicles, drivers, fills, auth } = data;
@@ -28,7 +29,7 @@ try {
         const delDrivers = db.prepare("DELETE FROM drivers WHERE ownerPhone = ?");
         const insDriver = db.prepare("INSERT OR REPLACE INTO drivers (id, ownerPhone, name, phone, driverCode, vehicleId, createdAt) VALUES (?,?,?,?,?,?,?)");
         const delFills = db.prepare("DELETE FROM fills WHERE ownerPhone = ?");
-        const insFill = db.prepare(`INSERT OR REPLACE INTO fills (id, ownerPhone, vehicleId, regNo, driver, kg, rate, rs, date, time, station, odometer, photos, stationCoords, odometerCoords, locationStatus, stationPhotoTimestamp, odometerPhotoTimestamp, timeGapMin, createdAt) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`);
+        const insFill = db.prepare(`INSERT OR REPLACE INTO fills (id, ownerPhone, vehicleId, regNo, driver, kg, rate, rs, date, time, station, odometer, photos, stationCoords, odometerCoords, locationStatus, stationPhotoTimestamp, odometerPhotoTimestamp, timeGapMin, createdAt) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`);
         const upsertAuth = db.prepare("INSERT OR REPLACE INTO auth (phone, role, name, otp, createdAt) VALUES (?,?,?,?,?)");
         const tx = db.transaction(() => {
           if (owner?.phone) upsertOwner.run(owner.phone, owner.name || "", owner.email || "", owner.address || "", owner.createdAt || updatedAt);
@@ -65,7 +66,7 @@ try {
 
 const resend = new Resend(process.env.RESEND_API_KEY || "");
 const otpStore = new Map();
-const OTP_EXPIRY_MS = 10 * 60 * 1000; // 10 minutes
+const OTP_EXPIRY_MS = 10 * 60 * 1000;
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -106,6 +107,72 @@ function deserializeFill(row) {
   };
 }
 
+// ─── WebSocket server for real-time sync ───
+const httpServer = createServer(app);
+const wss = new WebSocketServer({ server: httpServer });
+
+const ownerSubscribers = new Map();
+
+function broadcastToOwner(ownerPhone, event, payload) {
+  const clients = ownerSubscribers.get(ownerPhone);
+  if (!clients) return;
+  const message = JSON.stringify({ event, payload });
+  for (const client of clients) {
+    if (client.readyState === 1) {
+      try { client.send(message); } catch {}
+    }
+  }
+}
+
+wss.on("connection", (ws, req) => {
+  let registered = false;
+  ws.isAlive = true;
+  ws.ownerPhone = null;
+
+  ws.on("pong", () => { ws.isAlive = true; });
+
+  ws.on("message", (raw) => {
+    try {
+      const msg = JSON.parse(raw.toString());
+      if (msg.type === "register" && msg.ownerPhone) {
+        ws.ownerPhone = msg.ownerPhone;
+        if (!ownerSubscribers.has(msg.ownerPhone)) {
+          ownerSubscribers.set(msg.ownerPhone, new Set());
+        }
+        ownerSubscribers.get(msg.ownerPhone).add(ws);
+        registered = true;
+        ws.send(JSON.stringify({ event: "registered", payload: { ownerPhone: msg.ownerPhone } }));
+        console.log(`[ws] Client registered for owner: ${msg.ownerPhone}`);
+      }
+    } catch (e) {
+      console.error("[ws] bad message:", e.message);
+    }
+  });
+
+  ws.on("close", () => {
+    if (ws.ownerPhone && ownerSubscribers.has(ws.ownerPhone)) {
+      ownerSubscribers.get(ws.ownerPhone).delete(ws);
+      if (ownerSubscribers.get(ws.ownerPhone).size === 0) {
+        ownerSubscribers.delete(ws.ownerPhone);
+      }
+    }
+  });
+
+  ws.on("error", (e) => {
+    console.error("[ws] error:", e.message);
+  });
+});
+
+const wsHeartbeat = setInterval(() => {
+  wss.clients.forEach((ws) => {
+    if (!ws.isAlive) { ws.terminate(); return; }
+    ws.isAlive = false;
+    ws.ping();
+  });
+}, 30000);
+
+wss.on("close", () => { clearInterval(wsHeartbeat); });
+
 // ─── Email OTP endpoints ───
 app.post("/api/send-otp", async (req, res) => {
   try {
@@ -121,7 +188,7 @@ app.post("/api/send-otp", async (req, res) => {
       return res.json({ ok: true, message: "OTP logged (no Resend API key configured)" });
     }
 
-    const { data, error } = await resend.emails.send({
+    const { data: emailData, error } = await resend.emails.send({
       from: "CNG Fuel <onboarding@resend.dev>",
       to: email,
       subject: "Your OTP for CNG Fuel",
@@ -153,12 +220,10 @@ app.post("/api/verify-otp", (req, res) => {
 
     otpStore.delete(email);
 
-    // Find owner by email (case-insensitive) → return their data to skip re-registration
     let owner = null;
     let syncData = null;
     try {
       const emailLower = email.toLowerCase();
-      // Prefer owner with most sync data (by size) to get the richest dataset
       const allOwners = db.prepare("SELECT o.*, LENGTH(COALESCE(s.data,'')) as dataSize FROM owners o LEFT JOIN user_sync s ON s.phone = o.phone ORDER BY dataSize DESC").all();
       const ownerRow = allOwners.find((o) => (o.email || "").toLowerCase() === emailLower);
       if (ownerRow) {
@@ -166,7 +231,6 @@ app.post("/api/verify-otp", (req, res) => {
         const syncRow = db.prepare("SELECT data FROM user_sync WHERE phone = ?").get(ownerRow.phone);
         if (syncRow) syncData = safeJson(syncRow.data, null);
       } else {
-        // Fallback: scan user_sync JSON blobs for matching email
         const allSync = db.prepare("SELECT phone, data FROM user_sync ORDER BY LENGTH(data) DESC").all();
         for (const row of allSync) {
           const parsed = safeJson(row.data, null);
@@ -188,23 +252,21 @@ app.post("/api/verify-otp", (req, res) => {
 // ─── Health ───
 app.get("/api/health", (req, res) => res.json({ ok: true }));
 
-// ─── Debug: show raw data counts ───
+// ─── Debug ───
 app.get("/api/debug", (req, res) => {
   const syncCount = db.prepare("SELECT COUNT(*) as c FROM user_sync").get().c;
   const ownerCount = db.prepare("SELECT COUNT(*) as c FROM owners").get().c;
   const vehicleCount = db.prepare("SELECT COUNT(*) as c FROM vehicles").get().c;
   const driverCount = db.prepare("SELECT COUNT(*) as c FROM drivers").get().c;
   const fillCount = db.prepare("SELECT COUNT(*) as c FROM fills").get().c;
-  const sample = db.prepare("SELECT phone, substr(data,1,200) as data_preview FROM user_sync LIMIT 3").all();
-  res.json({ syncCount, ownerCount, vehicleCount, driverCount, fillCount, sample });
+  res.json({ syncCount, ownerCount, vehicleCount, driverCount, fillCount, wsClients: wss.clients.size });
 });
 
-// ─── Sync blob endpoints (order: static before param) ───
+// ─── Sync blob endpoints ───
 app.get("/api/sync/all", (req, res) => {
   try {
     const rows = db.prepare("SELECT phone, data, updatedAt FROM user_sync ORDER BY updatedAt DESC").all();
-    const result = rows.map((r) => ({ phone: r.phone, data: safeJson(r.data, {}), updatedAt: r.updatedAt }));
-    res.json(result);
+    res.json(rows.map((r) => ({ phone: r.phone, data: safeJson(r.data, {}), updatedAt: r.updatedAt })));
   } catch (e) {
     res.status(500).json({ error: "Failed to load sync data" });
   }
@@ -231,12 +293,9 @@ app.post("/api/sync/:phone", (req, res) => {
       return res.status(400).json({ error: "Invalid request body" });
     }
 
-    // Server-side merge: read existing data and combine with incoming
     const existingRow = db.prepare("SELECT data FROM user_sync WHERE phone = ?").get(phone);
     const existing = existingRow ? safeJson(existingRow.data, {}) : {};
 
-    // Keep existing owner/vehicles/drivers unless incoming has them
-    // Fills are merged by ID so driver pushes don't wipe owner fills
     const data = {
       owner: incoming.owner?.phone ? incoming.owner : (existing.owner || null),
       vehicles: Array.isArray(incoming.vehicles) && incoming.vehicles.length > 0 ? incoming.vehicles : (existing.vehicles || []),
@@ -290,12 +349,17 @@ app.post("/api/sync/:phone", (req, res) => {
     tx();
 
     res.json({ ok: true, updatedAt });
+
+    setTimeout(() => {
+      broadcastToOwner(phone, "sync:updated", data);
+    }, 100);
   } catch (e) {
+    console.error("[sync] POST error:", e);
     res.status(500).json({ error: "Sync failed" });
   }
 });
 
-// ─── Admin query endpoints (static /all before parameterized) ───
+// ─── Admin query endpoints ───
 app.get("/api/owners", (req, res) => res.json(db.prepare("SELECT * FROM owners").all()));
 app.get("/api/owner/:phone", (req, res) => {
   const row = db.prepare("SELECT * FROM owners WHERE phone = ?").get(req.params.phone);
@@ -315,10 +379,10 @@ app.get("/api/fills/:ownerPhone", (req, res) => {
   res.json(db.prepare("SELECT * FROM fills WHERE ownerPhone = ? ORDER BY date DESC, time DESC").all(req.params.ownerPhone).map(deserializeFill));
 });
 
-// SPA fallback: serve index.html for any non-API route
+// ─── SPA fallback ───
 app.get("*", (req, res) => {
   if (req.path.startsWith("/api/")) return res.status(404).json({ error: "Not found" });
   res.sendFile(join(staticDir, "index.html"));
 });
 
-app.listen(PORT, () => console.log(`Backend running on http://localhost:${PORT}`));
+httpServer.listen(PORT, () => console.log(`Backend running on http://localhost:${PORT}`));
