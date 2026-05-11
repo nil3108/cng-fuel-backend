@@ -92,9 +92,10 @@ export default function OTPLogin() {
 
       // If we have a local OTP and it matches, skip server verification
       if (localOtp && enteredOtp === localOtp) {
-        const userData = { name: email.split("@")[0], email, phone: "9725665062" };
+        const userData = { name: email.split("@")[0], email, phone: "" };
         await login(userData, "owner");
-        navigate("/register");
+        const existingOwner = getOwner();
+        navigate(existingOwner ? "/dashboard" : "/register");
         setLoading(false);
         return;
       }
